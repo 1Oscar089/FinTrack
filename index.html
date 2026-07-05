@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="FinTrack — Tracker financiero personal con cuentas, tarjetas, registros, presupuestos, metas, inversiones y más." />
+  <title>FinTrack — Tracker Financiero</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2310b981'/%3E%3Cpath d='M9 21V11h3v10H9zm5 0v-7h3v7h-3zm5 0v-4h3v4h-3z' fill='white'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="brand-logo">
+            <svg viewBox="0 0 32 32" width="28" height="28"><rect width="32" height="32" rx="8" fill="currentColor"/><path d="M9 21V11h3v10H9zm5 0v-7h3v7h-3zm5 0v-4h3v4h-3z" fill="white"/></svg>
+          </div>
+          <div class="brand-text">
+            <span class="brand-name">FinTrack</span>
+            <span class="brand-sub">Tracker personal</span>
+          </div>
+        </div>
+        <button class="icon-btn sidebar-toggle" id="sidebarToggle" aria-label="Cerrar menú">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <nav class="sidebar-nav" id="sidebarNav">
+        <!-- navigation injected by app.js -->
+      </nav>
+      <div class="sidebar-footer">
+        <div class="sync-status" id="syncStatus">
+          <span class="sync-dot"></span>
+          <span class="sync-text">Modo local</span>
+        </div>
+        <button class="icon-btn" id="settingsBtn" title="Configuración" aria-label="Configuración">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+    </aside>
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+    <!-- Main -->
+    <div class="main-wrap">
+      <header class="topbar">
+        <button class="icon-btn menu-open" id="menuOpen" aria-label="Abrir menú">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        </button>
+        <div class="topbar-title">
+          <h1 id="viewTitle">Inicio</h1>
+          <p id="viewSubtitle" class="topbar-sub">Resumen global de tus finanzas</p>
+        </div>
+        <div class="topbar-actions">
+          <div class="fx-pill" id="fxPill" title="Tasa de cambio">
+            <span class="fx-pill-label">USD</span>
+            <span class="fx-pill-arrow">→</span>
+            <span class="fx-pill-value" id="fxPillValue">—</span>
+          </div>
+          <button class="icon-btn" id="themeToggle" title="Cambiar tema" aria-label="Cambiar tema">
+            <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+            <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="content" id="viewRoot">
+        <div class="loading-screen">
+          <div class="spinner"></div>
+          <p>Cargando FinTrack…</p>
+        </div>
+      </main>
+
+      <footer class="footer">
+        <span>FinTrack · Tracker financiero personal</span>
+        <span class="footer-dot">·</span>
+        <span>Datos en Google Sheets / Local</span>
+        <span class="footer-dot">·</span>
+        <a href="https://github.com" target="_blank" rel="noopener" class="footer-link">Repositorio</a>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Modal root -->
+  <div class="modal-root" id="modalRoot" aria-live="polite"></div>
+  <!-- Toast root -->
+  <div class="toast-root" id="toastRoot" aria-live="polite"></div>
+
+  <!-- FAB for quick add -->
+  <button class="fab" id="fabAdd" title="Nuevo registro" aria-label="Nuevo registro">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
