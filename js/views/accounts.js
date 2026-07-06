@@ -5,7 +5,7 @@ import * as db from '../db.js';
 import { ACCOUNT_TYPES } from '../config.js';
 import { icon } from '../icons.js';
 import { toast, modal, confirm, field, input, select, colorPicker, emojiPicker, segmented, emptyState } from '../ui.js';
-import { fmtMoney, fmtDate, uid, nowISO, escapeHTML, cardPeriod, cardPeriodBalance, cardStatus } from '../utils.js';
+import { fmtMoney, fmtDate, uid, nowISO, escapeHTML, cardPeriod, cardPeriodBalance, cardStatus, countsInBalance } from '../utils.js';
 
 const EMOJI_OPTS = ['💵','🏦','💳','📱','🏠','🚗','✈️','🎓','💼','💎','📊','🎯','🛒','🎁','📈','💰','🏢','🍪','☕','🎮'];
 const COLOR_OPTS = ['#10b981','#0ea5e9','#8b5cf6','#f59e0b','#ef4444','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#06b6d4','#eab308'];
@@ -17,8 +17,44 @@ export function renderAccounts(root) {
     const accounts = db.getTable('accounts');
     const active = accounts.filter(a => !a.archived);
     const archived = accounts.filter(a => a.archived);
+    const records = db.getTable('records');
+    const cards = active.filter(a => a.type === 'card' && countsInBalance(a));
+    const nonCard = active.filter(a => a.type !== 'card' && countsInBalance(a));
+    const savingsAccts = active.filter(a => !countsInBalance(a));
+
+    // Balance general = saldos de las 4 cuentas (sin ahorros) - deuda de tarjetas
+    const liquid = nonCard.reduce((s,a) => s + Number(a.balance||0), 0);
+    const cardDebt = cards.reduce((s,c) => s + cardPeriodBalance(c, records).due, 0);
+    const generalBalance = liquid - cardDebt;
+    const totalSavings = savingsAccts.reduce((s,a) => s + Number(a.balance||0), 0);
 
     root.innerHTML = `
+      <div class="kpi-grid mb-4" id="summaryKpis">
+        <div class="kpi">
+          <div class="kpi-label">${icon('wallet',16)} Balance general</div>
+          <div class="kpi-value ${generalBalance<0?'amt-neg':''}">${fmtMoney(generalBalance)}</div>
+          <div class="kpi-delta ${generalBalance>=0?'up':'down'}">${nonCard.length} cuenta(s) · ${cards.length} tarjeta(s)</div>
+          <div class="kpi-icon">${icon('wallet',16)}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">${icon('banknote',16)} Líquido (sin tarjetas)</div>
+          <div class="kpi-value amt-pos">${fmtMoney(liquid)}</div>
+          <div class="kpi-delta up">Efectivo + bancos + wallets</div>
+          <div class="kpi-icon" style="background:rgba(16,185,129,.15);color:var(--success)">${icon('banknote',16)}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">${icon('credit-card',16)} Deuda en tarjetas</div>
+          <div class="kpi-value ${cardDebt>0?'amt-neg':''}">${fmtMoney(cardDebt)}</div>
+          <div class="kpi-delta down">A pagar en periodo(s) actual(es)</div>
+          <div class="kpi-icon" style="background:rgba(139,92,246,.15);color:#8b5cf6">${icon('credit-card',16)}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">${icon('savings',16)} Ahorros apartados</div>
+          <div class="kpi-value">${fmtMoney(totalSavings)}</div>
+          <div class="kpi-delta">No incluidos en balance</div>
+          <div class="kpi-icon" style="background:rgba(20,184,166,.15);color:#14b8a6">${icon('savings',16)}</div>
+        </div>
+      </div>
       <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div class="flex gap-2 flex-wrap" id="typeFilter"></div>
         <button class="btn btn-primary" id="newBtn">${icon('plus',16)} Nueva cuenta</button>
@@ -87,7 +123,7 @@ function accountTile(a, onChange) {
         <div class="progress"><div class="progress-bar ${usagePct>80?'danger':usagePct>60?'warning':''}" style="width:${usagePct}%"></div></div>
       </div>
       <div class="flex justify-between text-xs text-dim mt-2">
-        <span>Corte: ${fmtDate(period.nextCut.toISOString(),{pattern:'short'})}</span>
+        <span>Corte: ${fmtDate(period.start.toISOString(),{pattern:'short'})}</span>
         <span>Pago: ${fmtDate(period.nextPay.toISOString(),{pattern:'short'})}</span>
       </div>
     `;

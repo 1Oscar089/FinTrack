@@ -106,60 +106,53 @@ export function svNow() {
 
 // ---------- Tarjetas de crédito ----------
 // Calcula el periodo actual de una tarjeta.
-// El periodo va del día de PAGO (payDay) al día de CORTE (cutDay) del mes siguiente.
-// Ej: corte 16, pago 21 → si hoy es 5 de julio, el periodo es del 21 de junio al 16 de julio.
-// El pago vence el día payDay del mes del corte (como payDay > cutDay, es después del corte).
-// Si payDay <= cutDay (caso inusual), el periodo va del cutDay al cutDay del mes siguiente,
-// y el pago es el payDay del mes siguiente al corte.
+// El periodo va del día de CORTE (cutDay) al día de PAGO (payDay).
+// Si cutDay > payDay (ej: corte 21, pago 16), el pago cae en el mes siguiente al corte.
+// Si cutDay < payDay (ej: corte 5, pago 20), el pago cae en el mismo mes que el corte.
+// El periodo cambia cuando llega el siguiente corte.
+//
+// Ej: corte 21, pago 16, hoy 5 de julio → periodo del 21 de junio al 16 de julio.
+//     Al llegar el 21 de julio, inicia nuevo periodo: 21 de julio al 16 de agosto.
 export function cardPeriod(cutDay, payDay) {
   const now = svNow();
   const y = now.getFullYear();
   const m = now.getMonth();
   const d = now.getDate();
 
-  let start, nextCut, nextPay;
-
-  if (payDay > cutDay) {
-    // Periodo: payDay (mes X) → cutDay (mes X+1). Pago: payDay del mes del corte.
-    let startM, startY;
-    if (d >= payDay) {
-      // El periodo empezó este mes (payDay)
-      startM = m; startY = y;
-    } else {
-      // El periodo empezó el mes pasado (payDay)
-      startM = m - 1; startY = y;
-      if (startM < 0) { startM = 11; startY--; }
-    }
-    start = new Date(startY, startM, clampDay(startY, startM, payDay));
-    // Corte = cutDay del mes siguiente al start
-    let cutM = startM + 1, cutY = startY;
-    if (cutM > 11) { cutM = 0; cutY++; }
-    nextCut = new Date(cutY, cutM, clampDay(cutY, cutM, cutDay));
-    // Pago = payDay del mes del corte (como payDay > cutDay, cae después del corte)
-    nextPay = new Date(cutY, cutM, clampDay(cutY, cutM, payDay));
+  // Encontrar el último corte (inicio del periodo actual)
+  let startY, startM;
+  if (d >= cutDay) {
+    // El corte ya pasó este mes → el periodo empezó este mes
+    startY = y; startM = m;
   } else {
-    // Caso estándar: periodo del cutDay al cutDay del mes siguiente. Pago = payDay del mes siguiente al corte.
-    let startM, startY;
-    if (d >= cutDay) {
-      startM = m; startY = y;
-    } else {
-      startM = m - 1; startY = y;
-      if (startM < 0) { startM = 11; startY--; }
-    }
-    start = new Date(startY, startM, clampDay(startY, startM, cutDay));
-    let cutM = startM + 1, cutY = startY;
-    if (cutM > 11) { cutM = 0; cutY++; }
-    nextCut = new Date(cutY, cutM, clampDay(cutY, cutM, cutDay));
-    // Pago = payDay del mes siguiente al corte
-    let payM = cutM + 1, payY = cutY;
-    if (payM > 11) { payM = 0; payY++; }
-    nextPay = new Date(payY, payM, clampDay(payY, payM, payDay));
+    // El corte aún no llega este mes → el periodo empezó el mes pasado
+    startY = y; startM = m - 1;
+    if (startM < 0) { startM = 11; startY--; }
   }
+  const start = new Date(startY, startM, clampDay(startY, startM, cutDay));
+
+  // El siguiente corte (fin del ciclo de gastos, inicio del próximo periodo)
+  let ncY = startY, ncM = startM + 1;
+  if (ncM > 11) { ncM = 0; ncY++; }
+  const nextCut = new Date(ncY, ncM, clampDay(ncY, ncM, cutDay));
+
+  // El pago (pago) correspondiente a este periodo.
+  // Si cutDay >= payDay: el pago cae en el mes siguiente al corte (start).
+  // Si cutDay < payDay: el pago cae en el mismo mes que el corte (start).
+  let pY, pM;
+  if (cutDay >= payDay) {
+    pY = startY; pM = startM + 1;
+    if (pM > 11) { pM = 0; pY++; }
+  } else {
+    pY = startY; pM = startM;
+  }
+  const nextPay = new Date(pY, pM, clampDay(pY, pM, payDay));
 
   const daysUntilCut = Math.ceil((nextCut - now) / 86400000);
   const daysUntilPay = Math.ceil((nextPay - now) / 86400000);
 
-  return { start, end: nextCut, nextCut, nextPay, daysUntilCut, daysUntilPay };
+  // "end" = fecha de pago (fin del periodo mostrado al usuario)
+  return { start, end: nextPay, nextCut, nextPay, daysUntilCut, daysUntilPay };
 }
 
 export function clampDay(y, m, day) {
@@ -208,12 +201,14 @@ function daysUntilPay(date) {
 
 // Calcula el saldo a pagar de una tarjeta en su periodo actual.
 // due = startingDebt (saldo inicial al crear la tarjeta) + gastos - pagos
+// Los gastos se cuentan desde el inicio del periodo (corte) hasta el pago.
 export function cardPeriodBalance(card, records) {
   const period = cardPeriod(card.cutDay, card.payDay);
   let spent = 0, paid = 0;
   for (const r of records) {
     const d = new Date(r.date);
-    if (d < period.start || d >= period.end) continue;
+    // Gastos desde el corte (start) hasta el pago (nextPay)
+    if (d < period.start || d > period.nextPay) continue;
     if (r.accountId === card.id && r.type === 'expense') spent += Number(r.amount) || 0;
     if (r.linkedCardId === card.id && r.categoryId === 'cat-cardpay' && r.type === 'expense') paid += Number(r.amount) || 0;
   }

@@ -20,13 +20,18 @@ export function renderDashboard(root) {
   const y = now.getFullYear(), m = now.getMonth();
   const monthLabel = now.toLocaleDateString('es-SV', { month: 'long', year: 'numeric' });
 
-  // KPIs — el balance total excluye tarjetas (deuda) y savings (ahorros no disponibles)
-  const totalBalance = balanceAccounts.reduce((s,a) => s + (a.type === 'card' ? 0 : Number(a.balance||0)), 0);
+  // Balance total = saldos de las 4 cuentas (cash, bank, card, wallet) - deuda de tarjetas
+  // Las tarjetas tienen balance 0; su deuda (startingDebt + gastos - pagos) se resta.
+  // Puede ser negativo si debes más de lo que tienes.
+  const liquidBalance = balanceAccounts
+    .filter(a => a.type !== 'card')
+    .reduce((s,a) => s + Number(a.balance||0), 0);
+  const cardDebt = cards.reduce((s,c) => s + cardPeriodBalance(c, records).due, 0);
+  const totalBalance = liquidBalance - cardDebt; // puede ser negativo
   const totalSavings = savingsAccounts.reduce((s,a) => s + Number(a.balance||0), 0);
   const monthInc = records.filter(r => r.type === 'income' && inMonth(r.date, y, m)).reduce((s,r) => s+Number(r.amount||0), 0);
   const monthExp = records.filter(r => r.type === 'expense' && inMonth(r.date, y, m)).reduce((s,r) => s+Number(r.amount||0), 0);
   const monthNet = monthInc - monthExp;
-  const cardDebt = cards.reduce((s,c) => s + cardPeriodBalance(c, records).due, 0);
 
   // Upcoming payments (próximos 7 días)
   const upcoming = scheduled
@@ -43,8 +48,8 @@ export function renderDashboard(root) {
     <div class="kpi-grid mb-6">
       <div class="kpi">
         <div class="kpi-label">${icon('wallet',16)} Balance total</div>
-        <div class="kpi-value">${fmtMoney(totalBalance)}</div>
-        <div class="kpi-delta up">${icon('trending-up',12)} Patrimonio líquido</div>
+        <div class="kpi-value ${totalBalance<0?'amt-neg':''}">${fmtMoney(totalBalance)}</div>
+        <div class="kpi-delta ${totalBalance>=0?'up':'down'}">${icon('trending-up',12)} ${totalBalance>=0?'Patrimonio positivo':'Debes más de lo que tienes'}</div>
         <div class="kpi-icon">${icon('wallet',16)}</div>
       </div>
       <div class="kpi">

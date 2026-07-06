@@ -93,7 +93,7 @@ function cardMini(c, records, onChange) {
     </div>
     <div class="flex items-center justify-between mb-2">
       <span class="badge ${status.cls} badge-dot">${status.label}</span>
-      <span class="text-xs text-dim">Pago ${relativeTime(period.nextPay.toISOString())}</span>
+      <span class="text-xs text-dim">Próx. corte ${relativeTime(period.nextCut.toISOString())} · Pago ${relativeTime(period.nextPay.toISOString())}</span>
     </div>
     <div class="flex justify-between text-xs text-muted mb-1">
       <span>Gasto del periodo / Límite</span>
@@ -105,8 +105,8 @@ function cardMini(c, records, onChange) {
       <div class="text-right"><span class="text-dim">Límite</span><div class="font-semibold font-mono">${fmtMoney(c.creditLimit)}</div></div>
     </div>
     <div class="flex justify-between text-xs">
-      <div><span class="text-dim">Corte</span><div class="font-semibold">${fmtDate(period.nextCut.toISOString(),{pattern:'short'})}</div></div>
-      <div class="text-right"><span class="text-dim">Pago</span><div class="font-semibold">${fmtDate(period.nextPay.toISOString(),{pattern:'short'})}</div></div>
+      <div><span class="text-dim">Corte (inicio)</span><div class="font-semibold">${fmtDate(period.start.toISOString(),{pattern:'short'})}</div></div>
+      <div class="text-right"><span class="text-dim">Pago (fin)</span><div class="font-semibold">${fmtDate(period.nextPay.toISOString(),{pattern:'short'})}</div></div>
     </div>
     <div class="divider"></div>
     <div class="flex justify-between items-center mb-2">
@@ -161,12 +161,12 @@ function openCardDetail(c, records, onChange) {
         ${bal.startingDebt>0?`<div class="text-xs text-dim mt-1">incluye saldo inicial ${fmtMoney(bal.startingDebt)}</div>`:''}
       </div>
       <div class="card" style="padding:14px">
-        <div class="text-xs text-muted">Próximo corte</div>
-        <div class="font-semibold mt-1">${fmtDate(period.nextCut.toISOString())}</div>
-        <div class="text-xs text-dim">${relativeTime(period.nextCut.toISOString())}</div>
+        <div class="text-xs text-muted">Corte (inicio periodo)</div>
+        <div class="font-semibold mt-1">${fmtDate(period.start.toISOString())}</div>
+        <div class="text-xs text-dim">${relativeTime(period.start.toISOString())}</div>
       </div>
       <div class="card" style="padding:14px">
-        <div class="text-xs text-muted">Fecha de pago</div>
+        <div class="text-xs text-muted">Pago (fin periodo)</div>
         <div class="font-semibold mt-1">${fmtDate(period.nextPay.toISOString())}</div>
         <div class="text-xs text-dim">${relativeTime(period.nextPay.toISOString())}</div>
       </div>
