@@ -186,6 +186,9 @@ export function renderRecordForm(existing, onDone) {
   const categories = db.getTable('categories');
   const tags = db.getTable('tags');
 
+  // Snapshot del registro original para revertir correctamente al editar
+  const original = existing ? JSON.parse(JSON.stringify(existing)) : null;
+
   const r = existing || {
     id: '', type: 'expense', amount: '', currency: 'USD', date: todayISO(),
     accountId: accounts[0]?.id || '', toAccountId: '', categoryId: '',
@@ -314,8 +317,9 @@ export function renderRecordForm(existing, onDone) {
       note: noteInput.value,
       createdAt: r.createdAt || nowISO(),
     };
-    if (existing) {
-      revertRecord(existing); // revertir efecto anterior
+    if (original) {
+      // Revertir el efecto del registro ORIGINAL (no del mutado) antes de aplicar el nuevo
+      revertRecord(original);
     }
     db.save('records', rec);
     db.applyRecordToAccounts(rec);

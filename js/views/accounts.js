@@ -107,7 +107,6 @@ function accountTile(a, onChange) {
         <div class="acct-name truncate">${escapeHTML(a.name)}</div>
         <div class="acct-type">${t.label}${a.archived?' · Archivada':''}</div>
       </div>
-      <button class="icon-btn menu-btn">${icon('more',16)}</button>
     </div>
     <div>
       <div class="text-xs text-muted">${isCard?'Deuda del periodo':'Saldo'}</div>
@@ -117,6 +116,7 @@ function accountTile(a, onChange) {
     <div class="flex gap-2 mt-2">
       <button class="btn btn-sm flex-1 edit-btn">${icon('edit',14)} Editar</button>
       <button class="btn btn-sm archive-btn">${a.archived?icon('refresh',14):icon('eye-off',14)} ${a.archived?'Restaurar':'Archivar'}</button>
+      <button class="btn btn-sm btn-danger del-btn" title="Eliminar">${icon('trash',14)}</button>
     </div>
   `;
   div.querySelector('.edit-btn').onclick = () => accountForm(a, onChange);
@@ -125,9 +125,23 @@ function accountTile(a, onChange) {
     toast(a.archived ? 'Restaurada' : 'Archivada', '', 'success');
     onChange();
   };
-  div.querySelector('.menu-btn').onclick = async () => {
-    const ok = await confirm({ title: 'Eliminar cuenta', message: '¿Eliminar definitivamente esta cuenta? Los registros asociados se conservarán.', danger: true, confirmText: 'Eliminar' });
-    if (ok) { db.remove('accounts', a.id); toast('Eliminada', '', 'success'); onChange(); }
+  div.querySelector('.del-btn').onclick = async () => {
+    const recCount = db.getTable('records').filter(r => r.accountId === a.id || r.toAccountId === a.id).length;
+    const msg = recCount > 0
+      ? `Esta cuenta tiene ${recCount} registro(s) asociado(s). Al eliminarla, esos registros perderán su referencia de cuenta (se conservan pero sin cuenta). ¿Eliminar de todos modos?`
+      : '¿Eliminar definitivamente esta cuenta?';
+    const ok = await confirm({ title: 'Eliminar cuenta', message: msg, danger: true, confirmText: 'Eliminar' });
+    if (ok) {
+      // Desvincular registros de la cuenta eliminada
+      const recs = db.getTable('records');
+      for (const r of recs) {
+        if (r.accountId === a.id) { r.accountId = ''; db.save('records', r); }
+        if (r.toAccountId === a.id) { r.toAccountId = ''; db.save('records', r); }
+      }
+      db.remove('accounts', a.id);
+      toast('Cuenta eliminada', '', 'success');
+      onChange();
+    }
   };
   return div;
 }

@@ -78,6 +78,7 @@ export function modal({ title, body, footer, size = '', onClose, closable = true
 // ---------- Confirm ----------
 export function confirm({ title = 'Confirmar', message = '¿Estás seguro?', confirmText = 'Confirmar', cancelText = 'Cancelar', danger = false }) {
   return new Promise(resolve => {
+    let resolved = false;
     const m = modal({
       title,
       size: 'sm',
@@ -86,10 +87,10 @@ export function confirm({ title = 'Confirmar', message = '¿Estás seguro?', con
         <button class="btn cancel-btn">${escape(cancelText)}</button>
         <button class="btn ${danger ? 'btn-danger' : 'btn-primary'} confirm-btn">${escape(confirmText)}</button>
       `,
-      onClose: () => resolve(false),
+      onClose: () => { if (!resolved) { resolved = true; resolve(false); } },
     });
-    m.el.querySelector('.cancel-btn').onclick = () => { m.close(); resolve(false); };
-    m.el.querySelector('.confirm-btn').onclick = () => { m.close(); resolve(true); };
+    m.el.querySelector('.cancel-btn').onclick = () => { if (!resolved) { resolved = true; resolve(false); } m.close(); };
+    m.el.querySelector('.confirm-btn').onclick = () => { if (!resolved) { resolved = true; resolve(true); } m.close(); };
   });
 }
 

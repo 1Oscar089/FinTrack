@@ -8,6 +8,20 @@ export const uid = (prefix = 'id') =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 // ---------- Formato monetario ----------
+// Mapa de símbolos de moneda (por código ISO)
+const CURRENCY_SYMBOLS = {
+  USD: '$',
+  SVC: '₡',
+  EUR: '€',
+  MXN: '$',
+  GTQ: 'Q',
+  HNL: 'L',
+  NIO: 'C$',
+  CRC: '₡',
+  BTC: '₿',
+  ETH: 'Ξ',
+};
+
 export function fmtMoney(value, currency = CONFIG.BASE_CURRENCY, opts = {}) {
   const { sign = false, compact = false } = opts;
   const v = Number(value) || 0;
@@ -25,8 +39,8 @@ export function fmtMoney(value, currency = CONFIG.BASE_CURRENCY, opts = {}) {
     }).format(abs);
   }
   const prefixSign = v < 0 ? '-' : (sign ? '+' : '');
-  const cur = currency === 'USD' ? '$' : currency === 'BTC' ? '₿' : `${currency} `;
-  return `${prefixSign}${cur}${str}`;
+  const sym = CURRENCY_SYMBOLS[currency] || (currency ? currency + ' ' : '');
+  return `${prefixSign}${sym}${str}`;
 }
 
 export function fmtNum(value, decimals = 2) {

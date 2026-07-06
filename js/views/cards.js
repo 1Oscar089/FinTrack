@@ -200,6 +200,27 @@ function openCardDetail(c, records, onChange) {
 
   const footer = document.createElement('div');
   footer.style.cssText = 'display:flex;justify-content:space-between;gap:10px';
+  const delBtn = document.createElement('button');
+  delBtn.className = 'btn btn-danger'; delBtn.innerHTML = `${icon('trash',14)} Eliminar`;
+  delBtn.onclick = async () => {
+    const recCount = db.getTable('records').filter(r => r.accountId === c.id || r.toAccountId === c.id || r.linkedCardId === c.id).length;
+    const msg = recCount > 0
+      ? `Esta tarjeta tiene ${recCount} registro(s) asociado(s). Al eliminarla, esos registros se conservan pero pierden la referencia. ¿Eliminar de todos modos?`
+      : '¿Eliminar definitivamente esta tarjeta?';
+    const ok = await confirm({ title: 'Eliminar tarjeta', message: msg, danger: true, confirmText: 'Eliminar' });
+    if (ok) {
+      const recs = db.getTable('records');
+      for (const r of recs) {
+        if (r.accountId === c.id) { r.accountId = ''; db.save('records', r); }
+        if (r.toAccountId === c.id) { r.toAccountId = ''; db.save('records', r); }
+        if (r.linkedCardId === c.id) { r.linkedCardId = ''; db.save('records', r); }
+      }
+      db.remove('accounts', c.id);
+      m.close();
+      toast('Tarjeta eliminada', '', 'success');
+      onChange();
+    }
+  };
   const editBtn = document.createElement('button');
   editBtn.className = 'btn'; editBtn.innerHTML = `${icon('edit',14)} Editar`;
   editBtn.onclick = () => { m.close(); import('./accounts.js').then(mod => mod.accountForm(c, onChange)); };
@@ -207,6 +228,7 @@ function openCardDetail(c, records, onChange) {
   payBtn.className = 'btn btn-primary'; payBtn.innerHTML = `${icon('banknote',16)} Pagar ${fmtMoney(bal.due)}`;
   payBtn.disabled = bal.due <= 0;
   payBtn.onclick = () => { m.close(); payCard(c, bal, onChange); };
+  footer.appendChild(delBtn);
   footer.appendChild(editBtn);
   footer.appendChild(payBtn);
 

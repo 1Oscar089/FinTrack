@@ -12,8 +12,10 @@ export const TABLES = [
   'goals', 'investments', 'warranties', 'giftcards', 'rates', 'settings',
 ];
 
-const LS_KEY = 'fintrack:data:v1';
-const LS_META = 'fintrack:meta:v1';
+const LS_KEY = 'fintrack:data:v2';
+const LS_META = 'fintrack:meta:v2';
+const LS_VERSION = 'fintrack:seed-version';
+const CURRENT_SEED_VERSION = '2'; // bump cuando cambia el seed para forzar reset de datos demo
 
 let cache = null;          // datos en memoria { table: [records] }
 let online = false;        // ¿conectado a Apps Script?
@@ -36,57 +38,26 @@ function saveLocal(data) {
 }
 
 // ---------- Datos semilla ----------
+// Solo categorías y etiquetas por defecto. Todo lo demás empieza vacío
+// para que el usuario cree sus propias cuentas, registros, etc.
 function seed() {
   return {
-    accounts: [
-      { id: 'acc-cash', name: 'Efectivo', type: 'cash', emoji: '💵', color: '#10b981', balance: 250, currency: 'USD', last4: '', cutDay: 0, payDay: 0, creditLimit: 0, expiry: '', archived: false, createdAt: nowISO() },
-      { id: 'acc-bank', name: 'Banco Agrícola', type: 'bank', emoji: '🏦', color: '#0ea5e9', balance: 3200, currency: 'USD', last4: '4521', cutDay: 0, payDay: 0, creditLimit: 0, expiry: '', archived: false, createdAt: nowISO() },
-      { id: 'acc-card1', name: 'Visa Gold', type: 'card', emoji: '💳', color: '#8b5cf6', balance: 0, currency: 'USD', last4: '8842', cutDay: 15, payDay: 5, creditLimit: 2500, expiry: '2028-06', archived: false, createdAt: nowISO() },
-      { id: 'acc-wallet', name: 'Yappy', type: 'wallet', emoji: '📱', color: '#f59e0b', balance: 180, currency: 'USD', last4: '', cutDay: 0, payDay: 0, creditLimit: 0, expiry: '', archived: false, createdAt: nowISO() },
-      { id: 'acc-savings', name: 'Fondo de ahorro', type: 'savings', emoji: '🐷', color: '#14b8a6', balance: 5000, currency: 'USD', last4: '', cutDay: 0, payDay: 0, creditLimit: 0, expiry: '', archived: false, createdAt: nowISO() },
-    ],
-    records: [
-      { id: uid('rec'), type: 'income', amount: 1500, currency: 'USD', date: nowISO().slice(0,10), accountId: 'acc-bank', toAccountId: '', categoryId: 'cat-salary', tags: ['tag-rec'], note: 'Salario quincenal', linkedCardId: '', scheduledId: '', createdAt: nowISO() },
-      { id: uid('rec'), type: 'expense', amount: 35.5, currency: 'USD', date: nowISO().slice(0,10), accountId: 'acc-cash', toAccountId: '', categoryId: 'cat-food', tags: ['tag-ess'], note: 'Almuerzo', linkedCardId: '', scheduledId: '', createdAt: nowISO() },
-      { id: uid('rec'), type: 'expense', amount: 120, currency: 'USD', date: nowISO().slice(0,10), accountId: 'acc-card1', toAccountId: '', categoryId: 'cart-shopping', tags: ['tag-imp'], note: 'Ropa', linkedCardId: '', scheduledId: '', createdAt: nowISO() },
-      { id: uid('rec'), type: 'expense', amount: 60, currency: 'USD', date: nowISO().slice(0,10), accountId: 'acc-card1', toAccountId: '', categoryId: 'cat-food', tags: ['tag-ess'], note: 'Súper', linkedCardId: '', scheduledId: '', createdAt: nowISO() },
-    ],
-    scheduled: [
-      { id: uid('sch'), name: 'Renta', type: 'expense', amount: 450, currency: 'USD', frequency: 'monthly', nextDate: nextMonthFirst(), endDate: '', accountId: 'acc-bank', toAccountId: '', categoryId: 'cat-home', tags: ['tag-ess','tag-rec'], note: 'Renta mensual', auto: false, active: true, createdAt: nowISO() },
-    ],
+    accounts: [],
+    records: [],
+    scheduled: [],
     scheduledHistory: [],
     categories: [...DEFAULT_CATEGORIES],
     tags: [...DEFAULT_TAGS],
-    budgets: [
-      { id: uid('bud'), categoryId: 'cat-food', amount: 400, period: 'monthly', month: currentMonth(), createdAt: nowISO() },
-      { id: uid('bud'), categoryId: 'cart-shopping', amount: 200, period: 'monthly', month: currentMonth(), createdAt: nowISO() },
-    ],
-    debts: [
-      { id: uid('deb'), type: 'owe', person: 'María', amount: 100, currency: 'USD', date: nowISO().slice(0,10), dueDate: '', description: 'Préstamo cena', settled: false, settledDate: '', createdAt: nowISO() },
-    ],
-    shopping: [
-      { id: uid('sho'), name: 'Café', qty: 2, unit: 'kg', price: 8.5, accountId: 'acc-cash', categoryId: 'cat-food', purchased: false, priority: 2, note: '', createdAt: nowISO() },
-      { id: uid('sho'), name: 'Papel higiénico', qty: 12, unit: 'unidad', price: 0.75, accountId: 'acc-cash', categoryId: 'cat-home', purchased: false, priority: 1, note: '', createdAt: nowISO() },
-    ],
-    goals: [
-      { id: uid('goa'), name: 'Fondo de emergencia', target: 5000, current: 1200, currency: 'USD', deadline: '2025-12-31', emoji: '🛟', color: '#10b981', note: '6 meses de gastos', createdAt: nowISO() },
-    ],
-    investments: [
-      { id: uid('inv'), type: 'crypto', symbol: 'BTC', name: 'Bitcoin', qty: 0.05, buyPrice: 42000, currentPrice: 67000, currency: 'USD', date: '2024-01-15', note: 'Long term', createdAt: nowISO() },
-    ],
-    warranties: [
-      { id: uid('war'), product: 'Laptop Lenovo', brand: 'Lenovo', serial: 'LN-2024-8821', purchaseDate: '2024-03-10', expiryDate: '2026-03-10', store: 'Amazon', note: 'Garantía extendida 2 años', fileUrl: '', createdAt: nowISO() },
-    ],
-    giftcards: [
-      { id: uid('gif'), name: 'Amazon $50', brand: 'Amazon', balance: 50, currency: 'USD', code: 'AMZ-XXXX-2024', pin: '', expiry: '', emoji: '🎁', color: '#f97316', note: '', createdAt: nowISO() },
-    ],
-    rates: [
-      { id: uid('rate'), pair: 'USD_BTC', rate: 0.0000149, date: nowISO().slice(0,10), note: 'Tasa referencial', createdAt: nowISO() },
-      { id: uid('rate'), pair: 'USD_SVC', rate: 8.75, date: nowISO().slice(0,10), note: '', createdAt: nowISO() },
-    ],
+    budgets: [],
+    debts: [],
+    shopping: [],
+    goals: [],
+    investments: [],
+    warranties: [],
+    giftcards: [],
+    rates: [],
     settings: [
       { id: 'set-theme', key: 'theme', value: 'dark' },
-      { id: 'set-fx', key: 'fxDisplay', value: 'BTC' },
     ],
   };
 }
@@ -103,6 +74,15 @@ function currentMonth() {
 
 // ---------- Carga inicial ----------
 export async function load() {
+  // Si la versión del seed cambió, resetear datos demo (conserva datos reales solo si el usuario los creó)
+  const storedVersion = localStorage.getItem(LS_VERSION);
+  if (storedVersion !== CURRENT_SEED_VERSION) {
+    // Borrar datos demo viejos y recargar seed limpio
+    localStorage.removeItem(LS_KEY);
+    localStorage.removeItem(LS_META);
+    localStorage.setItem(LS_VERSION, CURRENT_SEED_VERSION);
+  }
+
   // Si hay URL de Apps Script, intentar cargar en línea
   if (CONFIG.APPS_SCRIPT_URL) {
     try {
