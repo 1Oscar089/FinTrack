@@ -92,7 +92,7 @@ const FAB_ACTIONS = {
   dashboard:     () => renderRecordForm(null, () => route()),
   records:       () => renderRecordForm(null, () => route()),
   accounts:      () => accountForm(null, () => route()),
-  cards:         () => accountForm({ id:'', type:'card', name:'', emoji:'💳', color:'#8b5cf6', balance:0, currency:'USD', last4:'', cutDay:15, payDay:5, creditLimit:0, expiry:'', archived:false, createdAt:'' }, () => route()),
+  cards:         () => accountForm({ id:'', type:'card', name:'', emoji:'💳', color:'#8b5cf6', balance:0, currency:'USD', last4:'', cutDay:15, payDay:5, creditLimit:0, expiry:'', startingDebt:0, archived:false, createdAt:'' }, () => route()),
   scheduled:     () => scheduledForm(null, () => route()),
   categories:    () => catForm(null, () => route()),
   budgets:       () => budgetForm(null, () => route()),

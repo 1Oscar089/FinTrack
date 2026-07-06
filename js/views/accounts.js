@@ -72,7 +72,8 @@ function accountTile(a, onChange) {
     const period = cardPeriod(a.cutDay, a.payDay);
     const bal = cardPeriodBalance(a, records);
     const status = cardStatus(a, records);
-    const usagePct = a.creditLimit > 0 ? Math.min(100, (bal.due / a.creditLimit) * 100) : 0;
+    // Barra de progreso: gasto del periodo / límite de crédito
+    const usagePct = a.creditLimit > 0 ? Math.min(100, (bal.spent / a.creditLimit) * 100) : 0;
     extra = `
       <div class="flex items-center gap-2 mt-2">
         <span class="badge ${status.cls} badge-dot">${status.label}</span>
@@ -80,8 +81,8 @@ function accountTile(a, onChange) {
       </div>
       <div class="mt-2">
         <div class="flex justify-between text-xs text-muted mb-1">
-          <span>Uso del periodo</span>
-          <span class="font-mono">${fmtMoney(bal.due)} / ${fmtMoney(a.creditLimit)}</span>
+          <span>Gasto / Límite</span>
+          <span class="font-mono">${fmtMoney(bal.spent)} / ${fmtMoney(a.creditLimit)}</span>
         </div>
         <div class="progress"><div class="progress-bar ${usagePct>80?'danger':usagePct>60?'warning':''}" style="width:${usagePct}%"></div></div>
       </div>
@@ -152,7 +153,7 @@ export function accountForm(existing, onDone) {
   const a = existing || {
     id: '', name: '', type: 'cash', emoji: '💵', color: '#10b981',
     balance: 0, currency: 'USD', last4: '', cutDay: 1, payDay: 1,
-    creditLimit: 0, expiry: '', archived: false, createdAt: '',
+    creditLimit: 0, expiry: '', startingDebt: 0, archived: false, createdAt: '',
   };
 
   const body = document.createElement('div');
@@ -199,16 +200,19 @@ export function accountForm(existing, onDone) {
       const payInput = input({ type:'number', value: a.payDay||1, min:1, max:31 });
       const limitInput = input({ type:'number', value: a.creditLimit||0, min:0, step:'0.01' });
       const expiryInput = input({ type:'month', value: a.expiry||'' });
+      const startingDebtInput = input({ type:'number', value: a.startingDebt||0, min:0, step:'0.01', placeholder:'0.00' });
       cutInput.oninput = () => a.cutDay = clampDay(Number(cutInput.value)||1);
       payInput.oninput = () => a.payDay = clampDay(Number(payInput.value)||1);
       limitInput.oninput = () => a.creditLimit = Number(limitInput.value)||0;
       expiryInput.oninput = () => a.expiry = expiryInput.value;
+      startingDebtInput.oninput = () => a.startingDebt = Number(startingDebtInput.value)||0;
       const row = document.createElement('div');
       row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:14px';
       row.appendChild(field({ label: 'Día de corte', hint:'Día del mes (1-31)', input: cutInput }));
       row.appendChild(field({ label: 'Día de pago', hint:'Día del mes (1-31)', input: payInput }));
       cardFields.appendChild(row);
       cardFields.appendChild(field({ label: 'Límite de crédito', input: limitInput }));
+      cardFields.appendChild(field({ label: 'Pago inicial que se debe', hint:'Saldo que debes en el periodo actual al crear la tarjeta. Se sumará a los gastos del periodo.', input: startingDebtInput }));
       cardFields.appendChild(field({ label: 'Vencimiento de la tarjeta', input: expiryInput }));
 
       // Preview de tarjeta visual
