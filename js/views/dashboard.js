@@ -5,7 +5,7 @@ import * as db from '../db.js';
 import { RECORD_TYPES, ACCOUNT_TYPES } from '../config.js';
 import { icon } from '../icons.js';
 import { toast, emptyState } from '../ui.js';
-import { fmtMoney, fmtDate, fmtNum, relativeTime, todayISO, lastNMonths, inMonth, svNow, sum, cardPeriodBalance, escapeHTML, countsInBalance } from '../utils.js';
+import { fmtMoney, fmtDate, fmtNum, relativeTime, todayISO, lastNMonths, inMonth, svNow, sum, cardTotalDebt, cardPeriodBalance, escapeHTML, countsInBalance } from '../utils.js';
 
 export function renderDashboard(root) {
   const data = db.getAll();
@@ -20,13 +20,14 @@ export function renderDashboard(root) {
   const y = now.getFullYear(), m = now.getMonth();
   const monthLabel = now.toLocaleDateString('es-SV', { month: 'long', year: 'numeric' });
 
-  // Balance total = saldos de las 4 cuentas (cash, bank, card, wallet) - deuda de tarjetas
-  // Las tarjetas tienen balance 0; su deuda (startingDebt + gastos - pagos) se resta.
+  // Balance total = saldos de las 4 cuentas (cash, bank, card, wallet) - deuda total de tarjetas
+  // La deuda total de tarjeta = saldo inicial + registros (gastos - pagos) acumulados.
   // Puede ser negativo si debes más de lo que tienes.
   const liquidBalance = balanceAccounts
     .filter(a => a.type !== 'card')
     .reduce((s,a) => s + Number(a.balance||0), 0);
-  const cardDebt = cards.reduce((s,c) => s + cardPeriodBalance(c, records).due, 0);
+  // Para el balance usamos la deuda TOTAL (saldo inicial + registros), no la del periodo
+  const cardDebt = cards.reduce((s,c) => s + cardTotalDebt(c, records), 0);
   const totalBalance = liquidBalance - cardDebt; // puede ser negativo
   const totalSavings = savingsAccounts.reduce((s,a) => s + Number(a.balance||0), 0);
   const monthInc = records.filter(r => r.type === 'income' && inMonth(r.date, y, m)).reduce((s,r) => s+Number(r.amount||0), 0);
