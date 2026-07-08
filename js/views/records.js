@@ -167,11 +167,12 @@ function revertRecord(r) {
   const accounts = db.getTable('accounts');
   const sign = r.type === 'income' ? -1 : r.type === 'expense' ? 1 : 0;
   if (r.type === 'transfer') {
-    if (r.accountId) { const a = accounts.find(x=>x.id===r.accountId); if (a) { a.balance = Number(a.balance) + Number(r.amount); db.save('accounts', a); } }
-    if (r.toAccountId) { const b = accounts.find(x=>x.id===r.toAccountId); if (b) { b.balance = Number(b.balance) - Number(r.amount); db.save('accounts', b); } }
+    // No modificar tarjetas (su deuda se calcula con cardTotalDebt)
+    if (r.accountId) { const a = accounts.find(x=>x.id===r.accountId); if (a && a.type !== 'card') { a.balance = Number(a.balance) + Number(r.amount); db.save('accounts', a); } }
+    if (r.toAccountId) { const b = accounts.find(x=>x.id===r.toAccountId); if (b && b.type !== 'card') { b.balance = Number(b.balance) - Number(r.amount); db.save('accounts', b); } }
   } else if (r.accountId && sign !== 0) {
     const a = accounts.find(x=>x.id===r.accountId);
-    if (a) { a.balance = Number(a.balance) + sign * Number(r.amount); db.save('accounts', a); }
+    if (a && a.type !== 'card') { a.balance = Number(a.balance) + sign * Number(r.amount); db.save('accounts', a); }
   }
 }
 

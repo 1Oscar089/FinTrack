@@ -292,24 +292,29 @@ function advanceDate(dateISO, freq) {
   return d.toISOString().slice(0, 10);
 }
 
-// Aplica un registro a los saldos de las cuentas involucradas
+// Aplica un registro a los saldos de las cuentas involucradas.
+// IMPORTANTE: Las cuentas de tipo "card" (tarjetas de crédito) NO modifican su
+// balance con registros. Su balance es el "Saldo inicial (deuda actual)" fijo.
+// La deuda de las tarjetas se calcula dinámicamente con cardTotalDebt()
+// (balance + gastos - pagos), no modificando el balance.
 export function applyRecordToAccounts(rec) {
   const accounts = getTable('accounts');
   const sign = rec.type === 'income' ? 1 : rec.type === 'expense' ? -1 : 0;
   if (rec.type === 'transfer') {
-    // Transferencia: resta de origen, suma a destino
+    // Transferencia: resta de origen, suma a destino (excepto tarjetas)
     if (rec.accountId) {
       const a = accounts.find(x => x.id === rec.accountId);
-      if (a) { a.balance = Number(a.balance) - Number(rec.amount); save('accounts', a); }
+      if (a && a.type !== 'card') { a.balance = Number(a.balance) - Number(rec.amount); save('accounts', a); }
     }
     if (rec.toAccountId) {
       const b = accounts.find(x => x.id === rec.toAccountId);
-      if (b) { b.balance = Number(b.balance) + Number(rec.amount); save('accounts', b); }
+      if (b && b.type !== 'card') { b.balance = Number(b.balance) + Number(rec.amount); save('accounts', b); }
     }
     // Si toAccountId vacío = "fuera del tracker", solo resta del origen (ya hecho)
   } else if (rec.accountId && sign !== 0) {
     const a = accounts.find(x => x.id === rec.accountId);
-    if (a) {
+    // No modificar balance de tarjetas (su deuda se calcula con cardTotalDebt)
+    if (a && a.type !== 'card') {
       a.balance = Number(a.balance) + sign * Number(rec.amount);
       save('accounts', a);
     }
