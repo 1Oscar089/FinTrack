@@ -199,9 +199,23 @@ function daysUntilPay(date) {
   return Math.ceil((new Date(date) - svNow()) / 86400000);
 }
 
-// Calcula el saldo a pagar de una tarjeta en su periodo actual.
-// due = startingDebt (saldo inicial al crear la tarjeta) + gastos - pagos
-// Los gastos se cuentan desde el inicio del periodo (corte) hasta el pago.
+// Deuda TOTAL de una tarjeta = saldo inicial + todos los gastos - todos los pagos.
+// Este es el valor que va en el balance general (resta del patrimonio).
+// El saldo inicial es el que registraste al crear la tarjeta; los registros
+// (gastos y pagos) lo ajustan con el tiempo.
+export function cardTotalDebt(card, records) {
+  const startingDebt = Number(card.startingDebt) || 0;
+  let spent = 0, paid = 0;
+  for (const r of records) {
+    if (r.accountId === card.id && r.type === 'expense') spent += Number(r.amount) || 0;
+    if (r.linkedCardId === card.id && r.categoryId === 'cat-cardpay' && r.type === 'expense') paid += Number(r.amount) || 0;
+  }
+  return Math.max(0, startingDebt + spent - paid);
+}
+
+// Deuda del PERIODO actual (solo para el pago, NO para el balance).
+// = gastos del periodo - pagos del periodo (sin saldo inicial).
+// Esto es lo que se muestra como "A pagar" en la tarjeta.
 export function cardPeriodBalance(card, records) {
   const period = cardPeriod(card.cutDay, card.payDay);
   let spent = 0, paid = 0;
@@ -213,8 +227,9 @@ export function cardPeriodBalance(card, records) {
     if (r.linkedCardId === card.id && r.categoryId === 'cat-cardpay' && r.type === 'expense') paid += Number(r.amount) || 0;
   }
   const startingDebt = Number(card.startingDebt) || 0;
-  const due = Math.max(0, startingDebt + spent - paid);
-  return { spent, paid, startingDebt, due, period };
+  // La deuda del periodo = gastos - pagos del periodo (sin saldo inicial)
+  const periodDue = Math.max(0, spent - paid);
+  return { spent, paid, startingDebt, due: periodDue, period };
 }
 
 // ---------- Color helpers ----------
