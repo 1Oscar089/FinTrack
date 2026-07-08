@@ -4,7 +4,7 @@
 import * as db from '../db.js';
 import { icon } from '../icons.js';
 import { chart, textColor, kpiHTML } from './stats_common.js';
-import { fmtMoney, fmtPct, fmtNum, escapeHTML, countsInBalance, cardPeriodBalance, cardStatus } from '../utils.js';
+import { fmtMoney, fmtPct, fmtNum, escapeHTML, countsInBalance, cardTotalDebt, cardStatus } from '../utils.js';
 
 export function renderStatsAssets(root) {
   const accounts = db.getTable('accounts').filter(a => !a.archived);
@@ -16,7 +16,7 @@ export function renderStatsAssets(root) {
   const records = db.getTable('records');
 
   const liquid = balanceAccts.filter(a => a.type !== 'card').reduce((s,a) => s + Number(a.balance||0), 0);
-  const cardDebt = balanceAccts.filter(a => a.type === 'card').reduce((s,c) => s + cardPeriodBalance(c, records).due, 0);
+  const cardDebt = balanceAccts.filter(a => a.type === 'card').reduce((s,c) => s + cardTotalDebt(c, records), 0);
   const savings = savingsAccts.reduce((s,a) => s + Number(a.balance||0), 0);
   const giftTotal = giftcards.reduce((s,g) => s + Number(g.balance||0), 0);
   let invValue = 0, invCost = 0;
@@ -108,7 +108,7 @@ export function renderStatsAssets(root) {
   root.querySelector('#acctsTable').innerHTML = accounts.map(a => {
     const isSavings = !countsInBalance(a);
     const isCard = a.type === 'card';
-    const bal = isCard ? cardPeriodBalance(a, records).due : Number(a.balance||0);
+    const bal = isCard ? cardTotalDebt(a, records) : Number(a.balance||0);
     const status = isCard ? cardStatus(a, records).label : (isSavings ? 'Apartada' : 'Activa');
     const cls = isCard ? 'badge-warning' : isSavings ? 'badge-info' : Number(a.balance)>=0 ? 'badge-success' : 'badge-danger';
     return `<tr>

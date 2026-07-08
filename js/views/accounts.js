@@ -5,7 +5,7 @@ import * as db from '../db.js';
 import { ACCOUNT_TYPES } from '../config.js';
 import { icon } from '../icons.js';
 import { toast, modal, confirm, field, input, select, colorPicker, emojiPicker, segmented, emptyState } from '../ui.js';
-import { fmtMoney, fmtDate, uid, nowISO, escapeHTML, cardPeriod, cardPeriodBalance, cardStatus, countsInBalance } from '../utils.js';
+import { fmtMoney, fmtDate, uid, nowISO, escapeHTML, cardPeriod, cardPeriodBalance, cardTotalDebt, cardStatus, countsInBalance } from '../utils.js';
 
 const EMOJI_OPTS = ['💵','🏦','💳','📱','🏠','🚗','✈️','🎓','💼','💎','📊','🎯','🛒','🎁','📈','💰','🏢','🍪','☕','🎮'];
 const COLOR_OPTS = ['#10b981','#0ea5e9','#8b5cf6','#f59e0b','#ef4444','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#06b6d4','#eab308'];
@@ -22,9 +22,10 @@ export function renderAccounts(root) {
     const nonCard = active.filter(a => a.type !== 'card' && countsInBalance(a));
     const savingsAccts = active.filter(a => !countsInBalance(a));
 
-    // Balance general = saldos de las 4 cuentas (sin ahorros) - deuda de tarjetas
+    // Balance general = saldos de las 4 cuentas (sin ahorros) - deuda TOTAL de tarjetas
+    // La deuda total = saldo inicial + registros (gastos - pagos) acumulados
     const liquid = nonCard.reduce((s,a) => s + Number(a.balance||0), 0);
-    const cardDebt = cards.reduce((s,c) => s + cardPeriodBalance(c, records).due, 0);
+    const cardDebt = cards.reduce((s,c) => s + cardTotalDebt(c, records), 0);
     const generalBalance = liquid - cardDebt;
     const totalSavings = savingsAccts.reduce((s,a) => s + Number(a.balance||0), 0);
 
@@ -106,10 +107,10 @@ function accountTile(a, onChange) {
   let extra = '';
   if (isCard) {
     const period = cardPeriod(a.cutDay, a.payDay);
-    const bal = cardPeriodBalance(a, records);
+    const totalDebt = cardTotalDebt(a, records); // deuda total (saldo inicial + registros)
     const status = cardStatus(a, records);
-    // Barra de progreso: gasto del periodo / límite de crédito
-    const usagePct = a.creditLimit > 0 ? Math.min(100, (bal.spent / a.creditLimit) * 100) : 0;
+    // Barra de progreso: deuda total / límite de crédito
+    const usagePct = a.creditLimit > 0 ? Math.min(100, (totalDebt / a.creditLimit) * 100) : 0;
     extra = `
       <div class="flex items-center gap-2 mt-2">
         <span class="badge ${status.cls} badge-dot">${status.label}</span>
@@ -117,8 +118,8 @@ function accountTile(a, onChange) {
       </div>
       <div class="mt-2">
         <div class="flex justify-between text-xs text-muted mb-1">
-          <span>Gasto / Límite</span>
-          <span class="font-mono">${fmtMoney(bal.spent)} / ${fmtMoney(a.creditLimit)}</span>
+          <span>Deuda / Límite</span>
+          <span class="font-mono">${fmtMoney(totalDebt)} / ${fmtMoney(a.creditLimit)}</span>
         </div>
         <div class="progress"><div class="progress-bar ${usagePct>80?'danger':usagePct>60?'warning':''}" style="width:${usagePct}%"></div></div>
       </div>
@@ -146,8 +147,8 @@ function accountTile(a, onChange) {
       </div>
     </div>
     <div>
-      <div class="text-xs text-muted">${isCard?'Deuda del periodo':'Saldo'}</div>
-      <div class="acct-balance ${!isCard && Number(a.balance)<0?'neg':''}">${fmtMoney(isCard? (cardPeriodBalance(a,records).due) : a.balance, a.currency)}</div>
+      <div class="text-xs text-muted">${isCard?'Deuda total':'Saldo'}</div>
+      <div class="acct-balance ${isCard||Number(a.balance)<0?'neg':''}">${fmtMoney(isCard? cardTotalDebt(a,records) : a.balance, a.currency)}</div>
     </div>
     ${extra}
     <div class="flex gap-2 mt-2">

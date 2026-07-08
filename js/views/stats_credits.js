@@ -4,7 +4,7 @@
 import * as db from '../db.js';
 import { icon } from '../icons.js';
 import { kpiHTML } from './stats_common.js';
-import { fmtMoney, fmtPct, fmtDate, escapeHTML, cardPeriod, cardPeriodBalance, cardStatus, relativeTime } from '../utils.js';
+import { fmtMoney, fmtPct, fmtDate, escapeHTML, cardPeriod, cardPeriodBalance, cardTotalDebt, cardStatus, relativeTime } from '../utils.js';
 
 export function renderStatsCredits(root) {
   const accounts = db.getTable('accounts').filter(a => !a.archived);
@@ -13,7 +13,7 @@ export function renderStatsCredits(root) {
   const debts = db.getTable('debts').filter(d => !d.settled);
   const owe = debts.filter(d => d.type === 'owe');
   const owed = debts.filter(d => d.type === 'owed');
-  const totalCardDebt = cards.reduce((s,c) => s + cardPeriodBalance(c, records).due, 0);
+  const totalCardDebt = cards.reduce((s,c) => s + cardTotalDebt(c, records), 0);
   const totalOwe = owe.reduce((s,d) => s + Number(d.amount||0), 0);
   const totalOwed = owed.reduce((s,d) => s + Number(d.amount||0), 0);
   const totalLiabilities = totalCardDebt + totalOwe;
@@ -52,10 +52,10 @@ export function renderStatsCredits(root) {
     cardsList.innerHTML = `<div class="empty-state" style="padding:24px"><p class="text-sm text-muted">No tienes tarjetas de crédito.</p></div>`;
   } else {
     cardsList.innerHTML = cards.map(c => {
-      const bal = cardPeriodBalance(c, records);
+      const totalDebt = cardTotalDebt(c, records);
       const status = cardStatus(c, records);
       const period = cardPeriod(c.cutDay, c.payDay);
-      const usagePct = c.creditLimit > 0 ? Math.min(100, (bal.due/c.creditLimit)*100) : 0;
+      const usagePct = c.creditLimit > 0 ? Math.min(100, (totalDebt/c.creditLimit)*100) : 0;
       return `
         <div class="list-item" style="flex-direction:column;align-items:stretch;gap:10px">
           <div class="flex items-center gap-3" style="width:100%">
@@ -68,8 +68,8 @@ export function renderStatsCredits(root) {
           </div>
           <div>
             <div class="flex justify-between text-xs text-muted mb-1">
-              <span>Deuda del periodo</span>
-              <span class="font-mono">${fmtMoney(bal.due)} / ${fmtMoney(c.creditLimit)} (${fmtPct(usagePct)})</span>
+              <span>Deuda total / Límite</span>
+              <span class="font-mono">${fmtMoney(totalDebt)} / ${fmtMoney(c.creditLimit)} (${fmtPct(usagePct)})</span>
             </div>
             <div class="progress"><div class="progress-bar ${usagePct>80?'danger':usagePct>60?'warning':''}" style="width:${usagePct}%"></div></div>
           </div>

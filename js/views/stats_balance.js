@@ -6,7 +6,7 @@ import { ACCOUNT_TYPES } from '../config.js';
 import { icon } from '../icons.js';
 import { segmented } from '../ui.js';
 import { chart, standardOpts, textColor, kpiHTML } from './stats_common.js';
-import { fmtMoney, fmtPct, escapeHTML, countsInBalance, cardPeriodBalance } from '../utils.js';
+import { fmtMoney, fmtPct, escapeHTML, countsInBalance, cardTotalDebt } from '../utils.js';
 
 export function renderStatsBalance(root) {
   let range = 6;
@@ -53,7 +53,7 @@ export function renderStatsBalance(root) {
     const balanceAccts = accounts.filter(countsInBalance);
     const liquidAssets = balanceAccts.filter(a => a.type !== 'card').reduce((s,a) => s + Number(a.balance||0), 0);
     const cards = accounts.filter(a => a.type === 'card');
-    const cardDebt = cards.reduce((s,c) => s + cardPeriodBalance(c, db.getTable('records')).due, 0);
+    const cardDebt = cards.reduce((s,c) => s + cardTotalDebt(c, db.getTable('records')), 0);
     const debts = db.getTable('debts').filter(d => !d.settled);
     const owe = debts.filter(d => d.type === 'owe').reduce((s,d) => s + Number(d.amount||0), 0);
     const owed = debts.filter(d => d.type === 'owed').reduce((s,d) => s + Number(d.amount||0), 0);
@@ -95,7 +95,7 @@ export function renderStatsBalance(root) {
     const accounts = db.getTable('accounts').filter(a => !a.archived && countsInBalance(a));
     const liquid = accounts.filter(a => a.type !== 'card').reduce((s,a) => s + Number(a.balance||0), 0);
     const cards = accounts.filter(a => a.type === 'card');
-    const cardDebt = cards.reduce((s,c) => s + cardPeriodBalance(c, db.getTable('records')).due, 0);
+    const cardDebt = cards.reduce((s,c) => s + cardTotalDebt(c, db.getTable('records')), 0);
     const debts = db.getTable('debts').filter(d => !d.settled && d.type === 'owe').reduce((s,d) => s + Number(d.amount||0), 0);
     chart('assetsLiabChart', {
       type: 'doughnut',
@@ -120,7 +120,7 @@ export function renderStatsBalance(root) {
     const owed = debts.filter(d => d.type === 'owed').reduce((s,d) => s + Number(d.amount||0), 0);
 
     const liquid = balanceAccts.filter(a => a.type !== 'card').reduce((s,a) => s + Number(a.balance||0), 0);
-    const cardDebt = cards.reduce((s,c) => s + cardPeriodBalance(c, db.getTable('records')).due, 0);
+    const cardDebt = cards.reduce((s,c) => s + cardTotalDebt(c, db.getTable('records')), 0);
 
     const det = root.querySelector('#patrimonyDetail');
     det.innerHTML = `

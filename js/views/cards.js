@@ -4,7 +4,7 @@
 import * as db from '../db.js';
 import { icon } from '../icons.js';
 import { toast, modal, confirm, field, input, select, segmented, emptyState } from '../ui.js';
-import { fmtMoney, fmtDate, relativeTime, uid, nowISO, escapeHTML, cardPeriod, cardPeriodBalance, cardStatus, svNow, cardGradient, maskCardNumber, lastNMonths, inMonth } from '../utils.js';
+import { fmtMoney, fmtDate, relativeTime, uid, nowISO, escapeHTML, cardPeriod, cardPeriodBalance, cardTotalDebt, cardStatus, svNow, cardGradient, maskCardNumber, lastNMonths, inMonth } from '../utils.js';
 import { renderRecordForm } from './records.js';
 
 export function renderCards(root) {
@@ -65,10 +65,11 @@ export function renderCards(root) {
 
 function cardMini(c, records, onChange) {
   const period = cardPeriod(c.cutDay, c.payDay);
-  const bal = cardPeriodBalance(c, records);
+  const bal = cardPeriodBalance(c, records); // deuda del periodo (para el pago)
+  const totalDebt = cardTotalDebt(c, records); // deuda total (saldo inicial + registros)
   const status = cardStatus(c, records);
-  // Barra de progreso: gasto del periodo / límite de crédito
-  const usagePct = c.creditLimit > 0 ? Math.min(100, (bal.spent / c.creditLimit) * 100) : 0;
+  // Barra de progreso: deuda total / límite de crédito
+  const usagePct = c.creditLimit > 0 ? Math.min(100, (totalDebt / c.creditLimit) * 100) : 0;
 
   const div = document.createElement('div');
   div.className = 'card card-hover';
@@ -96,13 +97,13 @@ function cardMini(c, records, onChange) {
       <span class="text-xs text-dim">Próx. corte ${relativeTime(period.nextCut.toISOString())} · Pago ${relativeTime(period.nextPay.toISOString())}</span>
     </div>
     <div class="flex justify-between text-xs text-muted mb-1">
-      <span>Gasto del periodo / Límite</span>
+      <span>Deuda total / Límite</span>
       <span class="font-mono">${usagePct.toFixed(0)}%</span>
     </div>
     <div class="progress mb-3"><div class="progress-bar ${usagePct>80?'danger':usagePct>60?'warning':''}" style="width:${usagePct}%"></div></div>
     <div class="flex justify-between text-xs mb-2">
-      <div><span class="text-dim">Gastado</span><div class="font-semibold font-mono">${fmtMoney(bal.spent)}</div></div>
-      <div class="text-right"><span class="text-dim">Límite</span><div class="font-semibold font-mono">${fmtMoney(c.creditLimit)}</div></div>
+      <div><span class="text-dim">Deuda total</span><div class="font-semibold font-mono amt-neg">${fmtMoney(totalDebt)}</div></div>
+      <div class="text-right"><span class="text-dim">Disponible</span><div class="font-semibold font-mono">${fmtMoney(Math.max(0, c.creditLimit - totalDebt))}</div></div>
     </div>
     <div class="flex justify-between text-xs">
       <div><span class="text-dim">Corte (inicio)</span><div class="font-semibold">${fmtDate(period.start.toISOString(),{pattern:'short'})}</div></div>
@@ -110,10 +111,10 @@ function cardMini(c, records, onChange) {
     </div>
     <div class="divider"></div>
     <div class="flex justify-between items-center mb-2">
-      <span class="text-sm text-muted">A pagar${bal.startingDebt>0?` <span class="badge badge-neutral" style="font-size:9px">incluye saldo inicial ${fmtMoney(bal.startingDebt, undefined, {compact:true})}</span>`:''}</span>
+      <span class="text-sm text-muted">A pagar (periodo)</span>
       <span class="font-mono font-bold ${bal.due>0?'amt-neg':''} text-lg">${fmtMoney(bal.due)}</span>
     </div>
-    <button class="btn btn-primary btn-block pay-btn" ${bal.due<=0?'disabled':''}>${icon('banknote',16)} Pagar tarjeta</button>
+    <button class="btn btn-primary btn-block pay-btn" ${bal.due<=0&&totalDebt<=0?'disabled':''}>${icon('banknote',16)} Pagar tarjeta</button>
   `;
   div.onclick = (e) => {
     if (e.target.closest('.pay-btn')) return;
@@ -121,7 +122,7 @@ function cardMini(c, records, onChange) {
   };
   div.querySelector('.pay-btn').onclick = (e) => {
     e.stopPropagation();
-    payCard(c, bal, onChange);
+    payCard(c, { due: bal.due, totalDebt: cardTotalDebt(c, records) }, onChange);
   };
   return div;
 }
@@ -129,8 +130,10 @@ function cardMini(c, records, onChange) {
 function openCardDetail(c, records, onChange) {
   const period = cardPeriod(c.cutDay, c.payDay);
   const bal = cardPeriodBalance(c, records);
+  const totalDebt = cardTotalDebt(c, records);
   const status = cardStatus(c, records);
-  const usagePct = c.creditLimit > 0 ? Math.min(100, (bal.spent / c.creditLimit) * 100) : 0;
+  // Barra: deuda total / límite
+  const usagePct = c.creditLimit > 0 ? Math.min(100, (totalDebt / c.creditLimit) * 100) : 0;
   // Gastos por mes (últimos 6)
   const months = lastNMonths(6);
   const spending = months.map(mo => records.filter(r => r.accountId===c.id && r.type==='expense' && inMonth(r.date, mo.y, mo.m)).reduce((s,r)=>s+Number(r.amount||0),0));
@@ -156,9 +159,9 @@ function openCardDetail(c, records, onChange) {
         <div class="mt-2"><span class="badge ${status.cls} badge-dot">${status.label}</span></div>
       </div>
       <div class="card" style="padding:14px">
-        <div class="text-xs text-muted">A pagar (periodo actual)</div>
-        <div class="font-mono font-bold text-xl ${bal.due>0?'amt-neg':''}">${fmtMoney(bal.due)}</div>
-        ${bal.startingDebt>0?`<div class="text-xs text-dim mt-1">incluye saldo inicial ${fmtMoney(bal.startingDebt)}</div>`:''}
+        <div class="text-xs text-muted">Deuda total (saldo + registros)</div>
+        <div class="font-mono font-bold text-xl ${totalDebt>0?'amt-neg':''}">${fmtMoney(totalDebt)}</div>
+        <div class="text-xs text-dim mt-1">Saldo inicial ${fmtMoney(bal.startingDebt)}</div>
       </div>
       <div class="card" style="padding:14px">
         <div class="text-xs text-muted">Corte (inicio periodo)</div>
@@ -174,13 +177,23 @@ function openCardDetail(c, records, onChange) {
 
     <div class="card">
       <div class="flex justify-between text-sm mb-2">
-        <span class="text-muted">Gasto del periodo / Límite de crédito</span>
+        <span class="text-muted">Deuda total / Límite de crédito</span>
         <span class="font-mono font-bold">${usagePct.toFixed(0)}%</span>
       </div>
       <div class="progress"><div class="progress-bar ${usagePct>80?'danger':usagePct>60?'warning':''}" style="width:${usagePct}%"></div></div>
       <div class="flex justify-between text-xs text-dim mt-2">
-        <span>Gastado: ${fmtMoney(bal.spent)}</span>
-        <span>Disponible: ${fmtMoney(Math.max(0, c.creditLimit - bal.spent))}</span>
+        <span>Deuda: ${fmtMoney(totalDebt)}</span>
+        <span>Disponible: ${fmtMoney(Math.max(0, c.creditLimit - totalDebt))}</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="flex justify-between items-center">
+        <div>
+          <div class="text-xs text-muted">A pagar (deuda del periodo)</div>
+          <div class="text-xs text-dim">Gastos del periodo - pagos del periodo</div>
+        </div>
+        <div class="font-mono font-bold text-lg ${bal.due>0?'amt-neg':''}">${fmtMoney(bal.due)}</div>
       </div>
     </div>
 
@@ -244,9 +257,9 @@ function openCardDetail(c, records, onChange) {
   editBtn.className = 'btn'; editBtn.innerHTML = `${icon('edit',14)} Editar`;
   editBtn.onclick = () => { m.close(); import('./accounts.js').then(mod => mod.accountForm(c, onChange)); };
   const payBtn = document.createElement('button');
-  payBtn.className = 'btn btn-primary'; payBtn.innerHTML = `${icon('banknote',16)} Pagar ${fmtMoney(bal.due)}`;
-  payBtn.disabled = bal.due <= 0;
-  payBtn.onclick = () => { m.close(); payCard(c, bal, onChange); };
+  payBtn.className = 'btn btn-primary'; payBtn.innerHTML = `${icon('banknote',16)} Pagar ${fmtMoney(totalDebt)}`;
+  payBtn.disabled = totalDebt <= 0;
+  payBtn.onclick = () => { m.close(); payCard(c, { due: totalDebt, totalDebt }, onChange); };
   footer.appendChild(delBtn);
   footer.appendChild(editBtn);
   footer.appendChild(payBtn);
