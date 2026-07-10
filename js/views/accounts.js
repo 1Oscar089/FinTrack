@@ -5,7 +5,7 @@ import * as db from '../db.js';
 import { ACCOUNT_TYPES } from '../config.js';
 import { icon } from '../icons.js';
 import { toast, modal, confirm, field, input, select, colorPicker, emojiPicker, segmented, emptyState } from '../ui.js';
-import { fmtMoney, fmtDate, uid, nowISO, todayISO, escapeHTML, cardPeriod, cardPeriodBalance, cardTotalDebt, cardStatus, countsInBalance } from '../utils.js';
+import { fmtMoney, fmtDate, uid, nowISO, escapeHTML, cardPeriod, cardPeriodBalance, cardTotalDebt, cardStatus, countsInBalance } from '../utils.js';
 
 const EMOJI_OPTS = ['💵','🏦','💳','📱','🏠','🚗','✈️','🎓','💼','💎','📊','🎯','🛒','🎁','📈','💰','🏢','🍪','☕','🎮'];
 const COLOR_OPTS = ['#10b981','#0ea5e9','#8b5cf6','#f59e0b','#ef4444','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#06b6d4','#eab308'];
@@ -227,7 +227,7 @@ export function accountForm(existing, onDone) {
     const hnt = balanceField.querySelector('.field-hint');
     if (lbl) lbl.textContent = isCard ? 'Saldo inicial (deuda actual)' : 'Saldo inicial';
     if (hnt) hnt.textContent = isCard
-      ? 'Deuda actual de la tarjeta. Va en el balance y la barra de progreso. Los registros la ajustan.'
+      ? 'Deuda actual real de la tarjeta. Va en el balance y la barra de progreso. Los registros la ajustan.'
       : ' ';
   };
 
@@ -261,7 +261,7 @@ export function accountForm(existing, onDone) {
       row.appendChild(field({ label: 'Día de pago', hint:'Día del mes (1-31)', input: payInput }));
       cardFields.appendChild(row);
       cardFields.appendChild(field({ label: 'Límite de crédito', input: limitInput }));
-      cardFields.appendChild(field({ label: 'Pago inicial que se debe', hint:'Solo al crear la tarjeta. Crea un registro de gasto por este monto para el periodo actual. Después, el pago se calcula solo con los registros entre corte y corte.', input: startingDebtInput }));
+      cardFields.appendChild(field({ label: 'Pago inicial que se debe', hint:'Monto a pagar en el periodo actual. Solo es una referencia para prellenar el botón "Pagar". NO afecta la deuda total (esa es el Saldo inicial).', input: startingDebtInput }));
       cardFields.appendChild(field({ label: 'Vencimiento de la tarjeta', input: expiryInput }));
 
       // Preview de tarjeta visual
@@ -324,8 +324,6 @@ export function accountForm(existing, onDone) {
   cancel.onclick = () => m.close();
   save.onclick = () => {
     if (!nameInput.value.trim()) { toast('Nombre requerido', '', 'error'); return; }
-    // Es "nueva" si no tenía id antes (el FAB pasa un objeto con id vacío)
-    const wasNew = !a.id;
     const rec = {
       ...a,
       id: a.id || uid('acc'),
@@ -334,34 +332,10 @@ export function accountForm(existing, onDone) {
       color: colorPick.getValue(),
       balance: Number(balanceInput.value) || 0,
       last4: last4Input.value,
+      // startingDebt se guarda como referencia para el "A pagar" del periodo actual
+      startingDebt: Number(a.startingDebt) || 0,
       createdAt: a.createdAt || nowISO(),
     };
-    db.save('accounts', rec);
-    // Si es tarjeta NUEVA y tiene "Pago inicial que se debe" (startingDebt) > 0,
-    // crear automáticamente un registro de gasto en la tarjeta por ese monto.
-    // Esto es solo un atajo para registrar el pago del periodo actual.
-    // El startingDebt NO se guarda para el balance (el balance es el Saldo inicial).
-    if (wasNew && rec.type === 'card' && (Number(a.startingDebt) || 0) > 0) {
-      const initialRecord = {
-        id: uid('rec'),
-        type: 'expense',
-        amount: Number(a.startingDebt),
-        currency: 'USD',
-        date: todayISO(),
-        accountId: rec.id,
-        toAccountId: '',
-        categoryId: '',
-        tags: [],
-        note: 'Pago inicial (registro automático)',
-        linkedCardId: '',
-        scheduledId: '',
-        createdAt: nowISO(),
-      };
-      db.save('records', initialRecord);
-      // No aplicamos a saldo de cuenta porque las tarjetas no tienen saldo líquido
-    }
-    // Limpiar startingDebt del registro guardado (no se usa para nada después)
-    delete rec.startingDebt;
     db.save('accounts', rec);
     m.close();
     toast(existing ? 'Cuenta actualizada' : 'Cuenta creada', '', 'success');
