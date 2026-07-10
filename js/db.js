@@ -83,14 +83,20 @@ export async function load() {
     localStorage.setItem(LS_VERSION, CURRENT_SEED_VERSION);
   }
 
-  // Si hay URL de Apps Script, intentar cargar en línea
+  // Cargar datos locales primero (siempre)
+  const localData = loadLocal();
+  cache = normalize(localData || seed());
+  saveLocal(cache);
+
+  // Si hay URL de Apps Script, intentar cargar en línea y hacer merge
   if (CONFIG.APPS_SCRIPT_URL) {
     try {
       const data = await fetchRemote('list');
       if (data && data.ok) {
-        cache = normalize(data.data);
+        const remoteData = normalize(data.data);
+        // Merge: combinar registros locales y remotos sin duplicar (por id)
+        cache = mergeData(localData ? normalize(localData) : seed(), remoteData);
         online = true;
-        // respaldar local
         saveLocal(cache);
         notify();
         return cache;
@@ -99,14 +105,30 @@ export async function load() {
       console.warn('No se pudo conectar a Google Sheets, usando almacenamiento local.', e);
     }
   }
-  // Fallback local
+  // Fallback local (ya cargado arriba)
   online = false;
-  cache = loadLocal() || seed();
-  // garantizar todas las tablas
-  cache = normalize(cache);
-  saveLocal(cache);
   notify();
   return cache;
+}
+
+// Combina datos locales y remotos sin duplicar registros (por id).
+// Prioriza los datos locales (más recientes) cuando hay conflicto.
+function mergeData(local, remote) {
+  const out = {};
+  for (const t of TABLES) {
+    const localRecs = (local && local[t]) || [];
+    const remoteRecs = (remote && remote[t]) || [];
+    const byId = new Map();
+    // Añadir remotos primero
+    for (const r of remoteRecs) if (r && r.id) byId.set(r.id, r);
+    // Sobrescribir con locales (más recientes)
+    for (const r of localRecs) if (r && r.id) byId.set(r.id, r);
+    out[t] = Array.from(byId.values());
+  }
+  // Si no hay categorías/tags, sembrar
+  if (out.categories.length === 0) out.categories = [...DEFAULT_CATEGORIES];
+  if (out.tags.length === 0) out.tags = [...DEFAULT_TAGS];
+  return out;
 }
 
 function normalize(data) {
@@ -226,6 +248,11 @@ function scheduleSync() {
   if (!CONFIG.APPS_SCRIPT_URL) return;
   clearTimeout(syncTimer);
   syncTimer = setTimeout(() => syncRemote(), 1200);
+}
+
+// Fuerza guardado inmediato en localStorage (para persistencia crítica como pagos)
+export function persistNow() {
+  if (cache) saveLocal(cache);
 }
 
 // ---------- Procesador de pagos programados vencidos ----------

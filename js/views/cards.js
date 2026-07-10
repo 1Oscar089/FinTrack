@@ -159,9 +159,9 @@ function openCardDetail(c, records, onChange) {
         <div class="mt-2"><span class="badge ${status.cls} badge-dot">${status.label}</span></div>
       </div>
       <div class="card" style="padding:14px">
-        <div class="text-xs text-muted">Deuda total (saldo + registros)</div>
+        <div class="text-xs text-muted">Deuda total (saldo inicial + registros)</div>
         <div class="font-mono font-bold text-xl ${totalDebt>0?'amt-neg':''}">${fmtMoney(totalDebt)}</div>
-        <div class="text-xs text-dim mt-1">Saldo inicial ${fmtMoney(bal.startingDebt)}</div>
+        <div class="text-xs text-dim mt-1">Saldo inicial ${fmtMoney(c.balance||0)}</div>
       </div>
       <div class="card" style="padding:14px">
         <div class="text-xs text-muted">Corte (inicio periodo)</div>
@@ -355,6 +355,8 @@ export function payCard(card, bal, onDone) {
     };
     db.save('records', rec);
     db.applyRecordToAccounts(rec);
+    // Forzar guardado explícito en localStorage para persistencia inmediata
+    db.persistNow();
     m.close();
     toast('Pago registrado', `${fmtMoney(amount)} pagado a ${card.name}.`, 'success');
     onDone?.();
