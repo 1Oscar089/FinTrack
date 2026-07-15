@@ -20,7 +20,7 @@
 export const CONFIG = {
   // 👇 Pega aquí tu URL de despliegue de Apps Script (termina en /exec)
   // Ejemplo: 'https://script.google.com/macros/s/AKfycbx.../exec'
-  APPS_SCRIPT_URL: '',
+  APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbwwVQu3Ye8Cjz96raql2sIdeEQYjFRJurc9ivkX9etWsOxjU8ZECVlJ3kVll4rGsfyCLQ/exec',
 
   // ID del sheet (solo referencia informativa)
   SHEET_ID: '',
@@ -33,7 +33,7 @@ export const CONFIG = {
   TIMEZONE: 'America/El_Salvador',
 
   // Días de gracia para considerar una tarjeta "vencida"
-  CARD_GRACE_DAYS: 3,
+  CARD_GRACE_DAYS: 0,
 
   // Color por defecto para nuevas cuentas
   DEFAULT_ACCOUNT_COLOR: '#10b981',
