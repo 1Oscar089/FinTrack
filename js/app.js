@@ -292,9 +292,20 @@ function openSettings() {
     CONFIG.BASE_CURRENCY
   );
 
+  // Aviso si la URL está en config.js (no se puede cambiar desde aquí)
+  const urlInConfig = CONFIG.APPS_SCRIPT_URL !== '';
+  if (urlInConfig) {
+    const notice = document.createElement('div');
+    notice.style.cssText = 'background:var(--primary-soft);border:1px solid var(--primary);border-radius:8px;padding:12px;font-size:12px;color:var(--text-muted)';
+    notice.innerHTML = `<strong style="color:var(--primary)">✓ Conectado a Google Sheets</strong><br/>La URL está configurada en <code style="background:var(--surface-2);padding:2px 6px;border-radius:4px">config.js</code> y funciona en todos los dispositivos. Para cambiarla, edita ese archivo.`;
+    body.appendChild(notice);
+  }
+
   body.appendChild(field({
     label: 'URL de Apps Script',
-    hint: 'Pega la URL /exec de tu despliegue. Vacío = modo local.',
+    hint: urlInConfig
+      ? 'Ya configurada en config.js. Para multi-dispositivo, mantén la URL en config.js (no aquí).'
+      : 'Pega la URL /exec. Para multi-dispositivo, ponla en config.js. Vacío = modo local (solo este navegador).',
     input: urlInput,
   }));
   body.appendChild(field({
@@ -359,11 +370,18 @@ function openSettings() {
   save.className = 'btn btn-primary'; save.innerHTML = `${icon('check',16)} Guardar`;
   cancel.onclick = () => m.close();
   save.onclick = () => {
-    CONFIG.APPS_SCRIPT_URL = urlInput.value.trim();
+    const newUrl = urlInput.value.trim();
+    // Si la URL ya estaba en config.js, no la sobrescribimos en localStorage
+    // (config.js tiene prioridad para multi-dispositivo)
+    if (!urlInConfig) {
+      CONFIG.APPS_SCRIPT_URL = newUrl;
+    }
     CONFIG.SHEET_ID = sheetInput.value.trim();
     CONFIG.BASE_CURRENCY = baseCur.value;
-    // persistir en settings
-    db.setSetting('appsScriptUrl', CONFIG.APPS_SCRIPT_URL);
+    // persistir en settings (solo si no está hardcoded en config.js)
+    if (!urlInConfig) {
+      db.setSetting('appsScriptUrl', CONFIG.APPS_SCRIPT_URL);
+    }
     db.setSetting('sheetId', CONFIG.SHEET_ID);
     db.setSetting('baseCurrency', CONFIG.BASE_CURRENCY);
     localStorage.setItem('fintrack:cfg', JSON.stringify({ APPS_SCRIPT_URL: CONFIG.APPS_SCRIPT_URL, SHEET_ID: CONFIG.SHEET_ID, BASE_CURRENCY: CONFIG.BASE_CURRENCY }));
@@ -382,14 +400,18 @@ function openSettings() {
   });
 }
 
-// Cargar config persistida al arrancar
+// Cargar config persistida al arrancar.
+// Prioridad: config.js (hardcoded) > localStorage (override temporal).
+// Si la URL ya está en config.js, se usa esa (funciona en todos los dispositivos).
+// Si no está en config.js pero sí en localStorage, se usa la de localStorage.
 function loadPersistedConfig() {
   try {
     const raw = localStorage.getItem('fintrack:cfg');
     if (raw) {
       const c = JSON.parse(raw);
-      if (c.APPS_SCRIPT_URL) CONFIG.APPS_SCRIPT_URL = c.APPS_SCRIPT_URL;
-      if (c.SHEET_ID) CONFIG.SHEET_ID = c.SHEET_ID;
+      // Solo usar localStorage si config.js NO tiene la URL hardcoded
+      if (!CONFIG.APPS_SCRIPT_URL && c.APPS_SCRIPT_URL) CONFIG.APPS_SCRIPT_URL = c.APPS_SCRIPT_URL;
+      if (!CONFIG.SHEET_ID && c.SHEET_ID) CONFIG.SHEET_ID = c.SHEET_ID;
       if (c.BASE_CURRENCY) CONFIG.BASE_CURRENCY = c.BASE_CURRENCY;
     }
   } catch {}
