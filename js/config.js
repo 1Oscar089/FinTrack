@@ -1,7 +1,7 @@
 // ============================================================
 // FinTrack — Configuración
 // ============================================================
-// Para conectar tu Google Sheet:
+// Para conectar tu Google Sheet (y que funcione en TODOS los dispositivos):
 //   1. Abre tu Google Sheet (o crea uno nuevo).
 //   2. Extensiones → Apps Script.
 //   3. Pega el contenido de google-apps-script/Code.gs.
@@ -9,14 +9,17 @@
 //      - Ejecutar como: Tú
 //      - Quién tiene acceso: Cualquiera
 //   5. Copia la URL /exec y pégala abajo en APPS_SCRIPT_URL.
-//   6. Pega el mismo ID del sheet en SHEET_ID (opcional, solo referencia).
+//
+// IMPORTANTE: La URL debe ir aquí en config.js (NO solo en la app via ⚙️)
+// para que funcione en cualquier dispositivo. Si la pones solo en la app,
+// se guarda en localStorage de ese navegador y no se comparte.
 //
 // Si APPS_SCRIPT_URL queda vacío, la app usará almacenamiento local
-// (localStorage) y podrás probar todas las funciones. Cuando configures
-// la URL, los datos se sincronizarán con tu Google Sheet.
+// (localStorage) y solo funcionará en este dispositivo/navegador.
 
 export const CONFIG = {
   // 👇 Pega aquí tu URL de despliegue de Apps Script (termina en /exec)
+  // Ejemplo: 'https://script.google.com/macros/s/AKfycbx.../exec'
   APPS_SCRIPT_URL: '',
 
   // ID del sheet (solo referencia informativa)
