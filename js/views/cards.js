@@ -1,11 +1,10 @@
 // ============================================================
-// FinTrack — Vista Tarjetas
+// FinTrack — Vista Tarjetas (Estado y Pagos Corregidos)
 // ============================================================
 import * as db from '../db.js';
 import { icon } from '../icons.js';
 import { toast, modal, confirm, field, input, select, segmented, emptyState } from '../ui.js';
-import { fmtMoney, fmtDate, relativeTime, uid, nowISO, escapeHTML, cardPeriod, cardPeriodBalance, cardTotalDebt, cardStatus, svNow, cardGradient, maskCardNumber, lastNMonths, inMonth } from '../utils.js';
-import { renderRecordForm } from './records.js';
+import { fmtMoney, fmtDate, relativeTime, uid, nowISO, escapeHTML, svNow, cardGradient, maskCardNumber, lastNMonths, inMonth } from '../utils.js';
 
 export function renderCards(root) {
   draw();
@@ -34,7 +33,6 @@ export function renderCards(root) {
     const seg = segmented(sortOpts, sortBy, v => { sortBy = v; renderGrid(); });
     root.querySelector('#sorter').appendChild(seg);
     root.querySelector('#newBtn').onclick = () => {
-      // redirigir a cuentas con tipo tarjeta preseleccionado — aquí abrimos el form directo
       import('./accounts.js').then(mod => mod.accountForm({ type:'card', id:'', name:'', emoji:'💳', color:'#8b5cf6', balance:0, currency:'USD', last4:'', cutDay:15, payDay:5, creditLimit:0, expiry:'', archived:false, createdAt:'' }, draw));
     };
 
@@ -45,9 +43,8 @@ export function renderCards(root) {
       list.sort((a,b) => {
         if (sortBy === 'alpha') return a.name.localeCompare(b.name);
         if (sortBy === 'expiry') return (a.expiry||'').localeCompare(b.expiry||'');
-        // payDate
-        const pa = cardPeriod(a.cutDay, a.payDay).nextPay;
-        const pb = cardPeriod(b.cutDay, b.payDay).nextPay;
+        const pa = getCardMetrics(a, records).period.nextPay;
+        const pb = getCardMetrics(b, records).period.nextPay;
         return pa - pb;
       });
       if (list.length === 0) {
@@ -64,11 +61,8 @@ export function renderCards(root) {
 }
 
 function cardMini(c, records, onChange) {
-  const period = cardPeriod(c.cutDay, c.payDay);
-  const bal = cardPeriodBalance(c, records); // deuda del periodo (para el pago)
-  const totalDebt = cardTotalDebt(c, records); // deuda total (saldo inicial + registros)
-  const status = cardStatus(c, records);
-  // Barra de progreso: deuda total / límite de crédito
+  const metrics = getCardMetrics(c, records);
+  const { period, totalDebt, status, due } = metrics;
   const usagePct = c.creditLimit > 0 ? Math.min(100, (totalDebt / c.creditLimit) * 100) : 0;
 
   const div = document.createElement('div');
@@ -112,9 +106,11 @@ function cardMini(c, records, onChange) {
     <div class="divider"></div>
     <div class="flex justify-between items-center mb-2">
       <span class="text-sm text-muted">A pagar (periodo)</span>
-      <span class="font-mono font-bold ${bal.due>0?'amt-neg':''} text-lg">${fmtMoney(bal.due)}</span>
+      <span class="font-mono font-bold ${due>0?'amt-neg':''} text-lg">${fmtMoney(due)}</span>
     </div>
-    <button class="btn btn-primary btn-block pay-btn" ${bal.due<=0&&totalDebt<=0?'disabled':''}>${icon('banknote',16)} Pagar tarjeta</button>
+    <button class="btn btn-primary btn-block pay-btn" ${due<=0?'disabled':''}>
+      ${icon(due<=0?'check':'banknote',16)} ${due<=0?'Al día':'Pagar tarjeta'}
+    </button>
   `;
   div.onclick = (e) => {
     if (e.target.closest('.pay-btn')) return;
@@ -122,19 +118,16 @@ function cardMini(c, records, onChange) {
   };
   div.querySelector('.pay-btn').onclick = (e) => {
     e.stopPropagation();
-    payCard(c, { due: bal.due, totalDebt: cardTotalDebt(c, records) }, onChange);
+    payCard(c, { due, totalDebt }, onChange);
   };
   return div;
 }
 
 function openCardDetail(c, records, onChange) {
-  const period = cardPeriod(c.cutDay, c.payDay);
-  const bal = cardPeriodBalance(c, records);
-  const totalDebt = cardTotalDebt(c, records);
-  const status = cardStatus(c, records);
-  // Barra: deuda total / límite
+  const metrics = getCardMetrics(c, records);
+  const { period, totalDebt, status, due } = metrics;
   const usagePct = c.creditLimit > 0 ? Math.min(100, (totalDebt / c.creditLimit) * 100) : 0;
-  // Gastos por mes (últimos 6)
+  
   const months = lastNMonths(6);
   const spending = months.map(mo => records.filter(r => r.accountId===c.id && r.type==='expense' && inMonth(r.date, mo.y, mo.m)).reduce((s,r)=>s+Number(r.amount||0),0));
 
@@ -159,9 +152,8 @@ function openCardDetail(c, records, onChange) {
         <div class="mt-2"><span class="badge ${status.cls} badge-dot">${status.label}</span></div>
       </div>
       <div class="card" style="padding:14px">
-        <div class="text-xs text-muted">Deuda total (saldo inicial + registros)</div>
+        <div class="text-xs text-muted">Deuda total</div>
         <div class="font-mono font-bold text-xl ${totalDebt>0?'amt-neg':''}">${fmtMoney(totalDebt)}</div>
-        <div class="text-xs text-dim mt-1">Saldo inicial ${fmtMoney(c.balance||0)}</div>
       </div>
       <div class="card" style="padding:14px">
         <div class="text-xs text-muted">Corte (inicio periodo)</div>
@@ -191,9 +183,9 @@ function openCardDetail(c, records, onChange) {
       <div class="flex justify-between items-center">
         <div>
           <div class="text-xs text-muted">A pagar (deuda del periodo)</div>
-          <div class="text-xs text-dim">Gastos del periodo - pagos del periodo</div>
+          <div class="text-xs text-dim">Deuda al corte menos abonos</div>
         </div>
-        <div class="font-mono font-bold text-lg ${bal.due>0?'amt-neg':''}">${fmtMoney(bal.due)}</div>
+        <div class="font-mono font-bold text-lg ${due>0?'amt-neg':'text-success'}">${fmtMoney(due)}</div>
       </div>
     </div>
 
@@ -208,23 +200,24 @@ function openCardDetail(c, records, onChange) {
     </div>
   `;
 
-  // Movimientos del periodo
-  const movs = records.filter(r => r.accountId === c.id && new Date(r.date) >= period.start && new Date(r.date) < period.end)
+  const movs = records.filter(r => (r.accountId === c.id || r.toAccountId === c.id) && new Date(r.date) >= period.start && new Date(r.date) < period.nextCut)
     .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const movsEl = body.querySelector('#periodMovs');
+  
   if (movs.length === 0) {
-    movsEl.appendChild(emptyState({ icon:'receipt', title:'Sin movimientos', message:'No hay gastos en este periodo.' }));
+    movsEl.appendChild(emptyState({ icon:'receipt', title:'Sin movimientos', message:'No hay registros en este periodo.' }));
   } else {
     for (const r of movs) {
+      const isPayment = r.type === 'transfer' && r.toAccountId === c.id;
       const cat = db.getTable('categories').find(x=>x.id===r.categoryId);
       movsEl.insertAdjacentHTML('beforeend', `
         <div class="list-item" style="padding:8px 10px">
-          <div class="list-item-icon" style="background:var(--primary-soft);color:var(--primary);width:32px;height:32px">${icon('arrow-up-right',14)}</div>
+          <div class="list-item-icon" style="background:var(--${isPayment?'success':'primary'}-soft);color:var(--${isPayment?'success':'primary'});width:32px;height:32px">${icon(isPayment?'arrow-down-left':'arrow-up-right',14)}</div>
           <div class="list-item-body">
-            <div class="list-item-title" style="font-size:13px">${escapeHTML(r.note||cat?.name||'Gasto')}</div>
+            <div class="list-item-title" style="font-size:13px">${escapeHTML(r.note||cat?.name||(isPayment?'Abono':'Gasto'))}</div>
             <div class="list-item-sub">${fmtDate(r.date,{pattern:'short'})}</div>
           </div>
-          <div class="font-mono font-bold amt-neg" style="font-size:13px">-${fmtMoney(r.amount)}</div>
+          <div class="font-mono font-bold ${isPayment?'text-success':'amt-neg'}" style="font-size:13px">${isPayment?'+':'-'}${fmtMoney(r.amount)}</div>
         </div>
       `);
     }
@@ -237,16 +230,10 @@ function openCardDetail(c, records, onChange) {
   delBtn.onclick = async () => {
     const recCount = db.getTable('records').filter(r => r.accountId === c.id || r.toAccountId === c.id || r.linkedCardId === c.id).length;
     const msg = recCount > 0
-      ? `Esta tarjeta tiene ${recCount} registro(s) asociado(s). Al eliminarla, esos registros se conservan pero pierden la referencia. ¿Eliminar de todos modos?`
+      ? `Esta tarjeta tiene ${recCount} registro(s). Al eliminarla pierden su referencia. ¿Eliminar de todos modos?`
       : '¿Eliminar definitivamente esta tarjeta?';
     const ok = await confirm({ title: 'Eliminar tarjeta', message: msg, danger: true, confirmText: 'Eliminar' });
     if (ok) {
-      const recs = db.getTable('records');
-      for (const r of recs) {
-        if (r.accountId === c.id) { r.accountId = ''; db.save('records', r); }
-        if (r.toAccountId === c.id) { r.toAccountId = ''; db.save('records', r); }
-        if (r.linkedCardId === c.id) { r.linkedCardId = ''; db.save('records', r); }
-      }
       db.remove('accounts', c.id);
       m.close();
       toast('Tarjeta eliminada', '', 'success');
@@ -256,53 +243,43 @@ function openCardDetail(c, records, onChange) {
   const editBtn = document.createElement('button');
   editBtn.className = 'btn'; editBtn.innerHTML = `${icon('edit',14)} Editar`;
   editBtn.onclick = () => { m.close(); import('./accounts.js').then(mod => mod.accountForm(c, onChange)); };
+  
   const payBtn = document.createElement('button');
-  payBtn.className = 'btn btn-primary'; payBtn.innerHTML = `${icon('banknote',16)} Pagar ${fmtMoney(totalDebt)}`;
-  payBtn.disabled = totalDebt <= 0;
-  payBtn.onclick = () => { m.close(); payCard(c, { due: totalDebt, totalDebt }, onChange); };
+  payBtn.className = 'btn btn-primary'; payBtn.innerHTML = `${icon('banknote',16)} Pagar tarjeta`;
+  payBtn.disabled = due <= 0;
+  payBtn.onclick = () => { m.close(); payCard(c, { due, totalDebt }, onChange); };
+  
   footer.appendChild(delBtn);
   footer.appendChild(editBtn);
   footer.appendChild(payBtn);
 
   const m = modal({ title: c.name, size: 'lg', body, footer });
 
-  // Chart
   setTimeout(() => {
     const canvas = body.querySelector('#cardLineChart');
     if (!canvas) return;
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    const textColor = isDark ? '#9aa8a1' : '#5c6b64';
-    const gridColor = isDark ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.06)';
     new Chart(canvas, {
       type: 'line',
       data: {
         labels: months.map(mo => mo.label),
-        datasets: [{
-          label: 'Gasto',
-          data: spending,
-          borderColor: c.color,
-          backgroundColor: c.color + '22',
-          fill: true,
-          tension: 0.35,
-          pointRadius: 4,
-          pointBackgroundColor: c.color,
-        }],
+        datasets: [{ label: 'Gasto', data: spending, borderColor: c.color, backgroundColor: c.color + '22', fill: true, tension: 0.35, pointRadius: 4 }],
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => fmtMoney(c.parsed.y) } } },
+        plugins: { legend: { display: false } },
         scales: {
-          x: { grid: { display: false }, ticks: { color: textColor, font:{size:11} } },
-          y: { grid: { color: gridColor }, ticks: { color: textColor, font:{size:11}, callback: v => fmtMoney(v, undefined, {compact:true}) } },
+          x: { grid: { display: false }, ticks: { color: isDark ? '#9aa8a1' : '#5c6b64' } },
+          y: { grid: { color: isDark ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.06)' }, ticks: { color: isDark ? '#9aa8a1' : '#5c6b64' } },
         },
       },
     });
   }, 50);
 }
 
-// ---------- Pagar tarjeta ----------
+// ---------- Pagar tarjeta (Corregido a tipo 'transfer') ----------
 export function payCard(card, bal, onDone) {
-  if (bal.due <= 0) { toast('Nada que pagar', 'La tarjeta no tiene deuda en este periodo.', 'info'); return; }
+  if (bal.due <= 0) { toast('Nada que pagar', 'La tarjeta no tiene deuda pendiente.', 'info'); return; }
   const accounts = db.getTable('accounts').filter(a => !a.archived && a.id !== card.id && a.type !== 'card');
   const body = document.createElement('div');
   body.style.cssText = 'display:flex;flex-direction:column;gap:14px';
@@ -313,14 +290,13 @@ export function payCard(card, bal, onDone) {
     </div>
   `;
   const paySource = select(
-    [{value:'',label:'— Selecciona cuenta —'}, ...accounts.map(a=>({value:a.id,label:`${a.emoji} ${a.name} (${fmtMoney(a.balance,a.currency,{compact:true})})`}))],
-    ''
+    [{value:'',label:'— Selecciona cuenta de origen —'}, ...accounts.map(a=>({value:a.id,label:`${a.emoji} ${a.name} (${fmtMoney(a.balance,a.currency,{compact:true})})`}))], ''
   );
   body.appendChild(field({ label: 'Pagar desde', required: true, input: paySource }));
   const amtInput = input({ type:'number', value: bal.due, step:'0.01', min:'0.01' });
-  body.appendChild(field({ label: 'Monto', input: amtInput }));
+  body.appendChild(field({ label: 'Monto a pagar', input: amtInput }));
   const dateInput = input({ type:'date', value: new Date().toISOString().slice(0,10) });
-  body.appendChild(field({ label: 'Fecha', input: dateInput }));
+  body.appendChild(field({ label: 'Fecha de pago', input: dateInput }));
 
   const footer = document.createElement('div');
   footer.style.cssText = 'display:flex;justify-content:flex-end;gap:10px';
@@ -332,37 +308,91 @@ export function payCard(card, bal, onDone) {
     const amount = Number(amtInput.value);
     if (!sourceId) { toast('Selecciona cuenta', 'Elige desde dónde pagar.', 'error'); return; }
     if (!amount || amount <= 0) { toast('Monto inválido', '', 'error'); return; }
-    const source = db.getTable('accounts').find(a => a.id === sourceId);
-    if (source.balance < amount) {
-      // advertir pero permitir
-      toast('Saldo insuficiente', 'La cuenta no tiene saldo suficiente, pero se registrará igual.', 'warning');
-    }
-    // Crear registro de pago de tarjeta
+    
     const rec = {
       id: uid('rec'),
-      type: 'expense',
+      type: 'transfer', // AHORA ES TRANSFERENCIA DIRECTA A LA TARJETA
       amount,
       currency: 'USD',
       date: dateInput.value,
       accountId: sourceId,
-      toAccountId: '',
+      toAccountId: card.id, // VINCULACIÓN CORRECTA DE INGRESO
       categoryId: 'cat-cardpay',
       tags: ['tag-rec'],
-      note: `Pago ${card.name}`,
-      linkedCardId: card.id,
+      note: `Abono a ${card.name}`,
+      linkedCardId: card.id, // Mantenido por retrocompatibilidad visual
       scheduledId: '',
       createdAt: nowISO(),
     };
     db.save('records', rec);
     db.applyRecordToAccounts(rec);
-    // Forzar guardado explícito en localStorage para persistencia inmediata
     db.persistNow();
     m.close();
-    toast('Pago registrado', `${fmtMoney(amount)} pagado a ${card.name}.`, 'success');
+    toast('Pago registrado', `Se abonó ${fmtMoney(amount)} a ${card.name}.`, 'success');
     onDone?.();
   };
   footer.appendChild(cancel);
   footer.appendChild(pay);
 
   const m = modal({ title: 'Pagar tarjeta', size: 'sm', body, footer });
+}
+
+// ---------- Motor Interno y Robusto de Métricas de Tarjetas ----------
+function getCardMetrics(c, records) {
+  const today = new Date();
+  const cutDay = Number(c.cutDay) || 1;
+  const payDay = Number(c.payDay) || 1;
+
+  let lastCut = new Date(today.getFullYear(), today.getMonth(), cutDay);
+  if (today.getDate() < cutDay) lastCut.setMonth(lastCut.getMonth() - 1);
+
+  let nextPay = new Date(lastCut.getFullYear(), lastCut.getMonth(), payDay);
+  if (payDay <= cutDay) nextPay.setMonth(nextPay.getMonth() + 1);
+  let nextCut = new Date(lastCut.getFullYear(), lastCut.getMonth() + 1, cutDay);
+
+  const lastCutStr = lastCut.toISOString().slice(0, 10);
+  const nextPayStr = nextPay.toISOString().slice(0, 10);
+  const todayStr = today.toISOString().slice(0, 10);
+
+  // La deuda total siempre es el saldo actual de la cuenta (en valor absoluto)
+  let totalDebt = Math.abs(Number(c.balance) || 0);
+
+  // Retrospectiva: Descubrir cuánto se debía exactamente el día del corte
+  let balanceAtCut = totalDebt;
+  let paymentsSinceCut = 0;
+
+  const recent = records.filter(r => 
+    (r.accountId === c.id || r.toAccountId === c.id || r.linkedCardId === c.id) &&
+    r.date > lastCutStr && r.date <= todayStr
+  );
+
+  for (const r of recent) {
+    if (r.type === 'expense' && r.accountId === c.id) {
+      balanceAtCut -= Number(r.amount); // Restar consumos nuevos
+    }
+    if (r.type === 'transfer' && r.toAccountId === c.id) {
+      balanceAtCut += Number(r.amount); // Sumar de vuelta los abonos realizados
+      paymentsSinceCut += Number(r.amount);
+    }
+    // Soporte para registros viejos con el formato anterior
+    if (r.type === 'expense' && r.linkedCardId === c.id) {
+      balanceAtCut += Number(r.amount);
+      paymentsSinceCut += Number(r.amount);
+    }
+  }
+
+  let due = Math.max(0, balanceAtCut - paymentsSinceCut);
+
+  // Resolución definitiva de Etiquetas
+  let status;
+  if (totalDebt <= 0 || due <= 0.01) {
+    status = { label: 'Pagada', cls: 'badge-success' };
+    due = 0;
+  } else if (todayStr > nextPayStr) {
+    status = { label: 'Vencida', cls: 'badge-danger' };
+  } else {
+    status = { label: 'Pendiente', cls: 'badge-warning' };
+  }
+
+  return { totalDebt, due, status, period: { start: lastCut, nextPay, nextCut } };
 }
