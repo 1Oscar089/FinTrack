@@ -1,13 +1,10 @@
-// ============================================================
-// FinTrack â€” Vista Cuentas
-// ============================================================
 import * as db from '../db.js';
 import { ACCOUNT_TYPES } from '../config.js';
 import { icon } from '../icons.js';
-import { toast, modal, confirm, field, input, select, colorPicker, emojiPicker, segmented, emptyState } from '../ui.js';
+import { toast, modal, confirm, field, input, colorPicker, emojiPicker, segmented, emptyState } from '../ui.js';
 import { fmtMoney, fmtDate, uid, nowISO, escapeHTML, cardPeriod, cardPeriodBalance, cardStatus, countsInBalance } from '../utils.js';
 
-const EMOJI_OPTS = ['ðŸ’µ','ðŸ¦','ðŸ’³','ðŸ“±','ðŸ ','ðŸš—','âœˆï¸','ðŸŽ“','ðŸ’¼','ðŸ’Ž','ðŸ“Š','ðŸŽ¯','ðŸ›’','ðŸŽ','ðŸ“ˆ','ðŸ’°','ðŸ¢','ðŸª','â˜•','ðŸŽ®'];
+const EMOJI_OPTS = ['💵','🏦','💳','📱','🏠','🚗','✈️','🎓','💼','💎','📊','🎯','🛒','🎁','📈','💰','🏢','🍪','☕','🎮'];
 const COLOR_OPTS = ['#10b981','#0ea5e9','#8b5cf6','#f59e0b','#ef4444','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#06b6d4','#eab308'];
 
 export function renderAccounts(root) {
@@ -22,7 +19,6 @@ export function renderAccounts(root) {
     const nonCard = active.filter(a => a.type !== 'card' && countsInBalance(a));
     const savingsAccts = active.filter(a => !countsInBalance(a));
 
-    // Balance general = saldos de las 4 cuentas (sin ahorros) - deuda de tarjetas
     const liquid = nonCard.reduce((s,a) => s + Number(a.balance||0), 0);
     const cardDebt = cards.reduce((s,c) => s + cardPeriodBalance(c, records).due, 0);
     const generalBalance = liquid - cardDebt;
@@ -33,11 +29,11 @@ export function renderAccounts(root) {
         <div class="kpi">
           <div class="kpi-label">${icon('wallet',16)} Balance general</div>
           <div class="kpi-value ${generalBalance<0?'amt-neg':''}">${fmtMoney(generalBalance)}</div>
-          <div class="kpi-delta ${generalBalance>=0?'up':'down'}">${nonCard.length} cuenta(s) Â· ${cards.length} tarjeta(s)</div>
+          <div class="kpi-delta ${generalBalance>=0?'up':'down'}">${nonCard.length} cuenta(s) · ${cards.length} tarjeta(s)</div>
           <div class="kpi-icon">${icon('wallet',16)}</div>
         </div>
         <div class="kpi">
-          <div class="kpi-label">${icon('banknote',16)} LÃ­quido (sin tarjetas)</div>
+          <div class="kpi-label">${icon('banknote',16)} Líquido (sin tarjetas)</div>
           <div class="kpi-value amt-pos">${fmtMoney(liquid)}</div>
           <div class="kpi-delta up">Efectivo + bancos + wallets</div>
           <div class="kpi-icon" style="background:rgba(16,185,129,.15);color:var(--success)">${icon('banknote',16)}</div>
@@ -108,16 +104,15 @@ function accountTile(a, onChange) {
     const period = cardPeriod(a.cutDay, a.payDay);
     const bal = cardPeriodBalance(a, records);
     const status = cardStatus(a, records);
-    // Barra de progreso: gasto del periodo / lÃ­mite de crÃ©dito
     const usagePct = a.creditLimit > 0 ? Math.min(100, (bal.spent / a.creditLimit) * 100) : 0;
     extra = `
       <div class="flex items-center gap-2 mt-2">
         <span class="badge ${status.cls} badge-dot">${status.label}</span>
-        ${a.last4?`<span class="text-xs text-dim font-mono">â€¢â€¢${a.last4}</span>`:''}
+        ${a.last4?`<span class="text-xs text-dim font-mono">••${a.last4}</span>`:''}
       </div>
       <div class="mt-2">
         <div class="flex justify-between text-xs text-muted mb-1">
-          <span>Gasto / LÃ­mite</span>
+          <span>Gasto / Límite</span>
           <span class="font-mono">${fmtMoney(bal.spent)} / ${fmtMoney(a.creditLimit)}</span>
         </div>
         <div class="progress"><div class="progress-bar ${usagePct>80?'danger':usagePct>60?'warning':''}" style="width:${usagePct}%"></div></div>
@@ -142,7 +137,7 @@ function accountTile(a, onChange) {
       <div class="acct-emoji" style="background:${a.color}22">${a.emoji||t.emoji}</div>
       <div style="flex:1;min-width:0">
         <div class="acct-name truncate">${escapeHTML(a.name)}</div>
-        <div class="acct-type">${t.label}${a.archived?' Â· Archivada':''}</div>
+        <div class="acct-type">${t.label}${a.archived?' · Archivada':''}</div>
       </div>
     </div>
     <div>
@@ -165,11 +160,10 @@ function accountTile(a, onChange) {
   div.querySelector('.del-btn').onclick = async () => {
     const recCount = db.getTable('records').filter(r => r.accountId === a.id || r.toAccountId === a.id).length;
     const msg = recCount > 0
-      ? `Esta cuenta tiene ${recCount} registro(s) asociado(s). Al eliminarla, esos registros perderÃ¡n su referencia de cuenta (se conservan pero sin cuenta). Â¿Eliminar de todos modos?`
-      : 'Â¿Eliminar definitivamente esta cuenta?';
+      ? `Esta cuenta tiene ${recCount} registro(s) asociado(s). Al eliminarla, esos registros perderán su referencia de cuenta (se conservan pero sin cuenta). ¿Eliminar de todos modos?`
+      : '¿Eliminar definitivamente esta cuenta?';
     const ok = await confirm({ title: 'Eliminar cuenta', message: msg, danger: true, confirmText: 'Eliminar' });
     if (ok) {
-      // Desvincular registros de la cuenta eliminada
       const recs = db.getTable('records');
       for (const r of recs) {
         if (r.accountId === a.id) { r.accountId = ''; db.save('records', r); }
@@ -183,11 +177,10 @@ function accountTile(a, onChange) {
   return div;
 }
 
-// ---------- Formulario de cuenta ----------
 export function accountForm(existing, onDone) {
   const accounts = db.getTable('accounts');
   const a = existing || {
-    id: '', name: '', type: 'cash', emoji: 'ðŸ’µ', color: '#10b981',
+    id: '', name: '', type: 'cash', emoji: '💵', color: '#10b981',
     balance: 0, currency: 'USD', last4: '', cutDay: 1, payDay: 1,
     creditLimit: 0, expiry: '', startingDebt: 0, archived: false, createdAt: '',
   };
@@ -195,18 +188,15 @@ export function accountForm(existing, onDone) {
   const body = document.createElement('div');
   body.style.cssText = 'display:flex;flex-direction:column;gap:14px';
 
-  // Tipo
   const typeSeg = segmented(
     Object.entries(ACCOUNT_TYPES).map(([k,v])=>({value:k,label:`${v.emoji} ${v.label}`})),
     a.type, v => { a.type = v; updateCardFields(); }
   );
   body.appendChild(field({ label: 'Tipo de cuenta', input: typeSeg }));
 
-  // Nombre
   const nameInput = input({ value: a.name, placeholder: 'Ej: Cuenta de ahorros' });
   body.appendChild(field({ label: 'Nombre', required: true, input: nameInput }));
 
-  // Emoji + color
   const emojiPick = emojiPicker(a.emoji, EMOJI_OPTS);
   const colorPick = colorPicker(a.color, COLOR_OPTS);
   const visual = document.createElement('div');
@@ -215,43 +205,52 @@ export function accountForm(existing, onDone) {
   visual.appendChild(field({ label: 'Color', input: colorPick }));
   body.appendChild(visual);
 
-  // Saldo inicial (no aplica igual a tarjetas)
   const balanceInput = input({ type:'number', value: a.balance, step:'0.01', placeholder:'0.00' });
-  body.appendChild(field({ label: a.type==='card' ? 'Saldo inicial (deuda actual)' : 'Saldo inicial', hint: a.type==='card'?'Para tarjetas, ingresa el monto que debes actualmente.':'', input: balanceInput }));
+  const balanceField = field({ label: a.type==='card' ? 'Saldo inicial (deuda actual)' : 'Saldo inicial', hint: a.type==='card'?'Para tarjetas, ingresa el monto que debes actualmente.':'', input: balanceInput });
+  body.appendChild(balanceField);
 
-  // last4
-  const last4Input = input({ value: a.last4, placeholder: 'Ãšltimos 4 dÃ­gitos', maxLength: 4 });
-  body.appendChild(field({ label: 'Ãšltimos 4 dÃ­gitos', hint: 'Para tarjetas y cuentas bancarias', input: last4Input }));
+  const last4Input = input({ value: a.last4, placeholder: 'Últimos 4 dígitos', maxLength: 4 });
+  const last4Field = field({ label: 'Últimos 4 dígitos', hint: 'Para tarjetas y cuentas bancarias', input: last4Input });
+  body.appendChild(last4Field);
 
-  // Campos dinÃ¡micos para tarjeta
   const cardFields = document.createElement('div');
   cardFields.style.cssText = 'display:flex;flex-direction:column;gap:14px';
   body.appendChild(cardFields);
 
+  function clampDay(d) { return Math.min(31, Math.max(1, d)); }
+
   function updateCardFields() {
     cardFields.innerHTML = '';
-    last4Input.closest('.field').style.display = (a.type==='card'||a.type==='bank') ? '' : 'none';
-    if (a.type === 'card') {
+    const isCard = a.type === 'card';
+    const isBank = a.type === 'bank';
+    
+    last4Field.style.display = (isCard || isBank) ? '' : 'none';
+    balanceField.querySelector('label').textContent = isCard ? 'Saldo inicial (deuda actual)' : 'Saldo inicial';
+    const hint = balanceField.querySelector('.field-hint');
+    if(hint) hint.textContent = isCard ? 'Para tarjetas, ingresa el monto que debes actualmente.' : '';
+
+    if (isCard) {
       const cutInput = input({ type:'number', value: a.cutDay||1, min:1, max:31 });
       const payInput = input({ type:'number', value: a.payDay||1, min:1, max:31 });
       const limitInput = input({ type:'number', value: a.creditLimit||0, min:0, step:'0.01' });
       const expiryInput = input({ type:'month', value: a.expiry||'' });
       const startingDebtInput = input({ type:'number', value: a.startingDebt||0, min:0, step:'0.01', placeholder:'0.00' });
+      
       cutInput.oninput = () => a.cutDay = clampDay(Number(cutInput.value)||1);
       payInput.oninput = () => a.payDay = clampDay(Number(payInput.value)||1);
       limitInput.oninput = () => a.creditLimit = Number(limitInput.value)||0;
       expiryInput.oninput = () => a.expiry = expiryInput.value;
       startingDebtInput.oninput = () => a.startingDebt = Number(startingDebtInput.value)||0;
+      
       const row = document.createElement('div');
       row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:14px';
-      row.appendChild(field({ label: 'DÃ­a de corte', hint:'DÃ­a del mes (1-31)', input: cutInput }));
-      row.appendChild(field({ label: 'DÃ­a de pago', hint:'DÃ­a del mes (1-31)', input: payInput }));
+      row.appendChild(field({ label: 'Día de corte', hint:'Día del mes (1-31)', input: cutInput }));
+      row.appendChild(field({ label: 'Día de pago', hint:'Día del mes (1-31)', input: payInput }));
       cardFields.appendChild(row);
-      cardFields.appendChild(field({ label: 'LÃ­mite de crÃ©dito', input: limitInput }));
-      cardFields.appendChild(field({ label: 'Pago inicial que se debe', hint:'Saldo que debes en el periodo actual al crear la tarjeta. Se sumarÃ¡ a los gastos del periodo.', input: startingDebtInput }));
+      cardFields.appendChild(field({ label: 'Límite de crédito', input: limitInput }));
+      cardFields.appendChild(field({ label: 'Pago inicial que se debe', hint:'Saldo que debes en el periodo actual al crear la tarjeta. Se sumará a los gastos del periodo.', input: startingDebtInput }));
       cardFields.appendChild(field({ label: 'Vencimiento de la tarjeta', input: expiryInput }));
 
-      // Preview de tarjeta visual
       const preview = document.createElement('div');
       preview.style.cssText = 'margin-top:4px';
       const updatePreview = () => {
@@ -261,7 +260,7 @@ export function accountForm(existing, onDone) {
               <div class="card-chip"></div>
               <span style="font-size:11px;opacity:.8;font-weight:700">${escapeHTML(ACCOUNT_TYPES.card.label.toUpperCase())}</span>
             </div>
-            <div class="card-number">${'â€¢â€¢â€¢â€¢ â€¢â€¢â€¢â€¢ â€¢â€¢â€¢â€¢ ' + (last4Input.value||'â€¢â€¢â€¢â€¢').padStart(4,'â€¢')}</div>
+            <div class="card-number">${'•••• •••• •••• ' + (last4Input.value||'••••').padStart(4,'•')}</div>
             <div class="card-meta">
               <div>
                 <div style="opacity:.7;font-size:9px">TITULAR</div>
@@ -278,39 +277,43 @@ export function accountForm(existing, onDone) {
       nameInput.oninput = updatePreview;
       last4Input.oninput = updatePreview;
       expiryInput.oninput = updatePreview;
-      // observer simple: actualiza la vista previa cuando cambian color/emoji
+      
       const obs = new MutationObserver(updatePreview);
       obs.observe(colorPick, { attributes:true, attributeFilter:['data-value'] });
       const obs2 = new MutationObserver(updatePreview);
       obs2.observe(emojiPick, { attributes:true, attributeFilter:['data-value'] });
+      
       updatePreview();
       cardFields.appendChild(field({ label: 'Vista previa', input: preview }));
     }
   }
   updateCardFields();
 
-  // Footer
   const footer = document.createElement('div');
   footer.style.cssText = 'display:flex;justify-content:space-between;gap:10px';
+  
   if (existing) {
     const del = document.createElement('button');
     del.className = 'btn btn-danger';
     del.innerHTML = `${icon('trash',14)} Eliminar`;
     del.onclick = async () => {
-      const ok = await confirm({ title:'Eliminar cuenta', message:'Â¿Eliminar esta cuenta permanentemente?', danger:true, confirmText:'Eliminar' });
+      const ok = await confirm({ title:'Eliminar cuenta', message:'¿Eliminar esta cuenta permanentemente?', danger:true, confirmText:'Eliminar' });
       if (ok) { db.remove('accounts', existing.id); m.close(); toast('Eliminada','','success'); onDone?.(); }
     };
     footer.appendChild(del);
   }
+  
   const right = document.createElement('div');
   right.style.cssText = 'display:flex;gap:10px';
   const cancel = document.createElement('button');
   cancel.className = 'btn'; cancel.textContent = 'Cancelar';
   const save = document.createElement('button');
   save.className = 'btn btn-primary'; save.innerHTML = `${icon('check',16)} Guardar`;
+  
   cancel.onclick = () => m.close();
   save.onclick = () => {
     if (!nameInput.value.trim()) { toast('Nombre requerido', '', 'error'); return; }
+    
     const rec = {
       ...a,
       id: a.id || uid('acc'),
@@ -321,16 +324,16 @@ export function accountForm(existing, onDone) {
       last4: last4Input.value,
       createdAt: a.createdAt || nowISO(),
     };
+    
     db.save('accounts', rec);
     m.close();
     toast(existing ? 'Cuenta actualizada' : 'Cuenta creada', '', 'success');
     onDone?.();
   };
+  
   right.appendChild(cancel);
   right.appendChild(save);
   footer.appendChild(right);
 
   const m = modal({ title: existing ? 'Editar cuenta' : 'Nueva cuenta', size: 'lg', body, footer });
 }
-
-function clampDay(d) { return Math.min(31, Math.max(1, d)); }      Este era el código accounts para que mejoraras
