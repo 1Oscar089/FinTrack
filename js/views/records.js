@@ -5,7 +5,13 @@ import * as db from '../db.js';
 import { RECORD_TYPES, ACCOUNT_TYPES } from '../config.js';
 import { icon } from '../icons.js';
 import { toast, modal, confirm, field, input, select, textarea, segmented, emptyState } from '../ui.js';
-import { fmtMoney, fmtDate, todayISO, nowISO, uid, escapeHTML } from '../utils.js';
+import { fmtMoney, fmtDate, nowISO, uid, escapeHTML } from '../utils.js';
+
+// Helper para obtener el "Hoy" local y evitar desfases UTC
+function getLocalTodayStr() {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+}
 
 export function renderRecords(root) {
   root.innerHTML = `
@@ -94,6 +100,7 @@ export function renderRecords(root) {
       return;
     }
     wrap.innerHTML = '';
+    
     // Agrupar por fecha
     const groups = {};
     for (const r of recs) {
@@ -125,7 +132,8 @@ function recordRow(r, onChange) {
   const t = RECORD_TYPES[r.type] || RECORD_TYPES.expense;
   const amountClass = r.type === 'income' ? 'amt-pos' : r.type === 'expense' ? 'amt-neg' : 'amt-neutral';
   const sign = r.type === 'income' ? '+' : r.type === 'expense' ? '-' : '';
-  // Chips de etiquetas con color real de cada etiqueta (fondo translúcido + borde + texto)
+  
+  // Chips de etiquetas
   const tagChips = (r.tags||[])
     .map(id => tags.find(x => x.id === id))
     .filter(Boolean)
@@ -153,26 +161,31 @@ function recordRow(r, onChange) {
   div.querySelector('.del-btn').onclick = async () => {
     const ok = await confirm({ title: 'Eliminar registro', message: '¿Eliminar este registro? Los saldos de las cuentas se ajustarán.', danger: true, confirmText: 'Eliminar' });
     if (!ok) return;
-    // Revertir efecto en cuentas
     revertRecord(r);
     db.remove('records', r.id);
-    toast('Eliminado', 'Registro eliminado.', 'success');
+    toast('Eliminado', 'Registro eliminado exitosamente.', 'success');
     onChange();
   };
   return div;
 }
 
-// Revierte el efecto de un registro en los saldos
+// Revierte el efecto de un registro en los saldos (Corregido para sincronizar tarjetas también)
 function revertRecord(r) {
   const accounts = db.getTable('accounts');
   const sign = r.type === 'income' ? -1 : r.type === 'expense' ? 1 : 0;
+  
   if (r.type === 'transfer') {
-    // No modificar tarjetas (su deuda se calcula con cardTotalDebt)
-    if (r.accountId) { const a = accounts.find(x=>x.id===r.accountId); if (a && a.type !== 'card') { a.balance = Number(a.balance) + Number(r.amount); db.save('accounts', a); } }
-    if (r.toAccountId) { const b = accounts.find(x=>x.id===r.toAccountId); if (b && b.type !== 'card') { b.balance = Number(b.balance) - Number(r.amount); db.save('accounts', b); } }
+    if (r.accountId) { 
+      const a = accounts.find(x => x.id === r.accountId); 
+      if (a) { a.balance = Number(a.balance) + Number(r.amount); db.save('accounts', a); } 
+    }
+    if (r.toAccountId) { 
+      const b = accounts.find(x => x.id === r.toAccountId); 
+      if (b) { b.balance = Number(b.balance) - Number(r.amount); db.save('accounts', b); } 
+    }
   } else if (r.accountId && sign !== 0) {
-    const a = accounts.find(x=>x.id===r.accountId);
-    if (a && a.type !== 'card') { a.balance = Number(a.balance) + sign * Number(r.amount); db.save('accounts', a); }
+    const a = accounts.find(x => x.id === r.accountId);
+    if (a) { a.balance = Number(a.balance) + sign * Number(r.amount); db.save('accounts', a); }
   }
 }
 
@@ -186,12 +199,13 @@ export function renderRecordForm(existing, onDone) {
   const accounts = db.getTable('accounts').filter(a => !a.archived);
   const categories = db.getTable('categories');
   const tags = db.getTable('tags');
+  const todayStr = getLocalTodayStr();
 
   // Snapshot del registro original para revertir correctamente al editar
   const original = existing ? JSON.parse(JSON.stringify(existing)) : null;
 
   const r = existing || {
-    id: '', type: 'expense', amount: '', currency: 'USD', date: todayISO(),
+    id: '', type: 'expense', amount: '', currency: 'USD', date: todayStr,
     accountId: accounts[0]?.id || '', toAccountId: '', categoryId: '',
     tags: [], note: '', linkedCardId: '', scheduledId: '', createdAt: '',
   };
@@ -208,11 +222,11 @@ export function renderRecordForm(existing, onDone) {
   body.appendChild(field({ label: 'Tipo de registro', input: typeSeg }));
 
   // Monto
-  const amountInput = input({ type: 'number', value: r.amount, placeholder: '0.00', step: '0.01', min: '0' });
+  const amountInput = input({ type: 'number', value: r.amount, placeholder: '0.00', step: '0.01', min: '0.01' });
   body.appendChild(field({ label: 'Monto', required: true, input: amountInput }));
 
   // Fecha
-  const dateInput = input({ type: 'date', value: r.date });
+  const dateInput = input({ type: 'date', value: r.date || todayStr });
   body.appendChild(field({ label: 'Fecha', input: dateInput }));
 
   // Campos dinámicos (cuenta, cuenta destino, categoría)
@@ -258,7 +272,8 @@ export function renderRecordForm(existing, onDone) {
 
   function updateFields() {
     dyn.innerHTML = '';
-    const accountOpts = [{ value: '', label: '— Selecciona —' }, ...accounts.map(a => ({ value: a.id, label: `${a.emoji} ${a.name}` }))];
+    const accountOpts = [{ value: '', label: '— Selecciona origen —' }, ...accounts.map(a => ({ value: a.id, label: `${a.emoji} ${a.name}` }))];
+    
     if (r.type === 'transfer') {
       const fromSel = select(accountOpts, r.accountId);
       const toOpts = [{ value: '', label: '— Fuera del tracker —' }, ...accounts.map(a => ({ value: a.id, label: `${a.emoji} ${a.name}` }))];
@@ -275,7 +290,7 @@ export function renderRecordForm(existing, onDone) {
       catSel.onchange = () => r.categoryId = catSel.value;
       dyn.appendChild(field({ label: 'Cuenta', required: true, input: accSel }));
       dyn.appendChild(field({ label: 'Categoría', input: catSel }));
-      // Si la cuenta es tarjeta y es egreso, marcar linkedCardId
+      
       const acc = accounts.find(a => a.id === r.accountId);
       if (acc && acc.type === 'card' && r.type === 'expense') {
         r.linkedCardId = acc.id;
@@ -299,17 +314,27 @@ export function renderRecordForm(existing, onDone) {
     };
     leftBtns.appendChild(del);
   }
+  
   const rightBtns = document.createElement('div');
   rightBtns.style.cssText = 'display:flex;gap:10px';
   const cancel = document.createElement('button');
   cancel.className = 'btn'; cancel.textContent = 'Cancelar';
   const save = document.createElement('button');
   save.className = 'btn btn-primary'; save.innerHTML = `${icon('check',16)} Guardar`;
+  
   cancel.onclick = () => m.close();
+  
   save.onclick = () => {
     const amount = Number(amountInput.value);
     if (!amount || amount <= 0) { toast('Monto inválido', 'Ingresa un monto mayor a 0.', 'error'); return; }
     if (!r.accountId) { toast('Cuenta requerida', 'Selecciona una cuenta.', 'error'); return; }
+    
+    // Validación estricta de transferencias
+    if (r.type === 'transfer' && r.accountId === r.toAccountId) {
+      toast('Error en cuentas', 'No puedes transferir dinero a la misma cuenta.', 'error'); 
+      return;
+    }
+
     const rec = {
       ...r,
       id: r.id || uid('rec'),
@@ -318,25 +343,24 @@ export function renderRecordForm(existing, onDone) {
       note: noteInput.value,
       createdAt: r.createdAt || nowISO(),
     };
+    
     if (original) {
-      // Revertir el efecto del registro ORIGINAL (no del mutado) antes de aplicar el nuevo
+      // Revertir el efecto del registro ORIGINAL antes de aplicar el nuevo para mantener los saldos exactos
       revertRecord(original);
     }
+    
     db.save('records', rec);
     db.applyRecordToAccounts(rec);
     m.close();
     toast(existing ? 'Actualizado' : 'Registro creado', '', 'success');
     onDone?.();
   };
+  
   rightBtns.appendChild(cancel);
   rightBtns.appendChild(save);
   footer.appendChild(leftBtns);
   footer.appendChild(rightBtns);
 
-  const m = modal({
-    title: existing ? 'Editar registro' : 'Nuevo registro',
-    body,
-    footer,
-  });
+  const m = modal({ title: existing ? 'Editar registro' : 'Nuevo registro', body, footer });
   return m;
 }

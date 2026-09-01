@@ -1,351 +1,422 @@
 // ============================================================
-// FinTrack — Vista Cuentas
+// FinTrack — Vista Tarjetas (Estado y Pagos Corregidos)
 // ============================================================
 import * as db from '../db.js';
-import { ACCOUNT_TYPES } from '../config.js';
 import { icon } from '../icons.js';
-import { toast, modal, confirm, field, input, select, colorPicker, emojiPicker, segmented, emptyState } from '../ui.js';
-import { fmtMoney, fmtDate, uid, nowISO, escapeHTML, cardPeriod, cardPeriodBalance, cardTotalDebt, cardStatus, countsInBalance } from '../utils.js';
+import { toast, modal, confirm, field, input, select, segmented, emptyState } from '../ui.js';
+import { fmtMoney, fmtDate, relativeTime, uid, nowISO, escapeHTML, svNow, cardGradient, maskCardNumber, lastNMonths, inMonth } from '../utils.js';
 
-const EMOJI_OPTS = ['💵','🏦','💳','📱','🏠','🚗','✈️','🎓','💼','💎','📊','🎯','🛒','🎁','📈','💰','🏢','🍪','☕','🎮'];
-const COLOR_OPTS = ['#10b981','#0ea5e9','#8b5cf6','#f59e0b','#ef4444','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#06b6d4','#eab308'];
-
-export function renderAccounts(root) {
+export function renderCards(root) {
   draw();
 
   function draw() {
-    const accounts = db.getTable('accounts');
-    const active = accounts.filter(a => !a.archived);
-    const archived = accounts.filter(a => a.archived);
+    const accounts = db.getTable('accounts').filter(a => a.type === 'card' && !a.archived);
     const records = db.getTable('records');
-    const cards = active.filter(a => a.type === 'card' && countsInBalance(a));
-    const nonCard = active.filter(a => a.type !== 'card' && countsInBalance(a));
-    const savingsAccts = active.filter(a => !countsInBalance(a));
-
-    // Balance general = saldos de las 4 cuentas (sin ahorros) - deuda TOTAL de tarjetas
-    // La deuda total = saldo inicial + registros (gastos - pagos) acumulados
-    const liquid = nonCard.reduce((s,a) => s + Number(a.balance||0), 0);
-    const cardDebt = cards.reduce((s,c) => s + cardTotalDebt(c, records), 0);
-    const generalBalance = liquid - cardDebt;
-    const totalSavings = savingsAccts.reduce((s,a) => s + Number(a.balance||0), 0);
 
     root.innerHTML = `
-      <div class="kpi-grid mb-4" id="summaryKpis">
-        <div class="kpi">
-          <div class="kpi-label">${icon('wallet',16)} Balance general</div>
-          <div class="kpi-value ${generalBalance<0?'amt-neg':''}">${fmtMoney(generalBalance)}</div>
-          <div class="kpi-delta ${generalBalance>=0?'up':'down'}">${nonCard.length} cuenta(s) · ${cards.length} tarjeta(s)</div>
-          <div class="kpi-icon">${icon('wallet',16)}</div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-label">${icon('banknote',16)} Líquido (sin tarjetas)</div>
-          <div class="kpi-value amt-pos">${fmtMoney(liquid)}</div>
-          <div class="kpi-delta up">Efectivo + bancos + wallets</div>
-          <div class="kpi-icon" style="background:rgba(16,185,129,.15);color:var(--success)">${icon('banknote',16)}</div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-label">${icon('credit-card',16)} Deuda en tarjetas</div>
-          <div class="kpi-value ${cardDebt>0?'amt-neg':''}">${fmtMoney(cardDebt)}</div>
-          <div class="kpi-delta down">A pagar en periodo(s) actual(es)</div>
-          <div class="kpi-icon" style="background:rgba(139,92,246,.15);color:#8b5cf6">${icon('credit-card',16)}</div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-label">${icon('savings',16)} Ahorros apartados</div>
-          <div class="kpi-value">${fmtMoney(totalSavings)}</div>
-          <div class="kpi-delta">No incluidos en balance</div>
-          <div class="kpi-icon" style="background:rgba(20,184,166,.15);color:#14b8a6">${icon('savings',16)}</div>
-        </div>
-      </div>
       <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <div class="flex gap-2 flex-wrap" id="typeFilter"></div>
-        <button class="btn btn-primary" id="newBtn">${icon('plus',16)} Nueva cuenta</button>
-      </div>
-      <div class="grid grid-auto gap-3" id="grid"></div>
-      ${archived.length ? `
-        <div class="mt-6">
-          <h3 class="text-sm text-muted font-semibold mb-3">Archivadas (${archived.length})</h3>
-          <div class="grid grid-auto gap-3" id="archGrid"></div>
+        <div class="flex items-center gap-2">
+          <span class="text-sm text-muted">Ordenar por:</span>
+          <div id="sorter"></div>
         </div>
-      ` : ''}
+        <button class="btn btn-primary" id="newBtn">${icon('plus',16)} Nueva tarjeta</button>
+      </div>
+      <div id="cardsGrid" class="grid grid-cols-3 gap-4"></div>
     `;
 
-    let filter = 'all';
-    const seg = segmented(
-      [{value:'all',label:'Todas'},...Object.entries(ACCOUNT_TYPES).map(([k,v])=>({value:k,label:v.label}))],
-      filter, v => { filter = v; renderGrid(); }
-    );
-    root.querySelector('#typeFilter').appendChild(seg);
-    root.querySelector('#newBtn').onclick = () => accountForm(null, draw);
+    let sortBy = 'payDate';
+    const sortOpts = [
+      { value: 'payDate', label: 'Fecha de pago' },
+      { value: 'expiry', label: 'Vencimiento' },
+      { value: 'alpha', label: 'Alfabético' },
+    ];
+    const seg = segmented(sortOpts, sortBy, v => { sortBy = v; renderGrid(); });
+    root.querySelector('#sorter').appendChild(seg);
+    root.querySelector('#newBtn').onclick = () => {
+      import('./accounts.js').then(mod => mod.accountForm({ type:'card', id:'', name:'', emoji:'💳', color:'#8b5cf6', balance:0, currency:'USD', last4:'', cutDay:15, payDay:5, creditLimit:0, expiry:'', archived:false, createdAt:'' }, draw));
+    };
 
     function renderGrid() {
-      const list = active.filter(a => filter==='all' || a.type===filter);
-      const grid = root.querySelector('#grid');
+      const grid = root.querySelector('#cardsGrid');
       grid.innerHTML = '';
+      let list = accounts.slice();
+      list.sort((a,b) => {
+        if (sortBy === 'alpha') return a.name.localeCompare(b.name);
+        if (sortBy === 'expiry') return (a.expiry||'').localeCompare(b.expiry||'');
+        const pa = getCardMetrics(a, records).period.nextPay;
+        const pb = getCardMetrics(b, records).period.nextPay;
+        return pa - pb;
+      });
       if (list.length === 0) {
         grid.appendChild(emptyState({
-          icon:'wallet', title:'Sin cuentas', message:'Crea tu primera cuenta para empezar a registrar movimientos.',
-          action: (()=>{const b=document.createElement('button');b.className='btn btn-primary';b.innerHTML=`${icon('plus',16)} Nueva cuenta`;b.onclick=()=>accountForm(null,draw);return b;})(),
+          icon:'credit-card', title:'Sin tarjetas', message:'Crea una cuenta de tipo tarjeta de crédito.',
+          action: (()=>{const b=document.createElement('button');b.className='btn btn-primary';b.innerHTML=`${icon('plus',16)} Nueva tarjeta`;b.onclick=()=>import('./accounts.js').then(m=>m.accountForm({type:'card',id:'',name:'',emoji:'💳',color:'#8b5cf6',balance:0,currency:'USD',last4:'',cutDay:15,payDay:5,creditLimit:0,expiry:'',archived:false,createdAt:''}, draw));return b;})(),
         }));
-      } else {
-        for (const a of list) grid.appendChild(accountTile(a, draw));
+        return;
       }
-      const archGrid = root.querySelector('#archGrid');
-      if (archGrid) {
-        archGrid.innerHTML = '';
-        for (const a of archived) archGrid.appendChild(accountTile(a, draw));
-      }
+      for (const c of list) grid.appendChild(cardMini(c, records, draw));
     }
     renderGrid();
   }
 }
 
-function accountTile(a, onChange) {
-  const t = ACCOUNT_TYPES[a.type] || ACCOUNT_TYPES.cash;
-  const isCard = a.type === 'card';
-  const isSavings = a.type === 'savings';
-  const records = db.getTable('records');
-  let extra = '';
-  if (isCard) {
-    const period = cardPeriod(a.cutDay, a.payDay);
-    const totalDebt = cardTotalDebt(a, records); // deuda total (saldo inicial + registros)
-    const status = cardStatus(a, records);
-    // Barra de progreso: deuda total / límite de crédito
-    const usagePct = a.creditLimit > 0 ? Math.min(100, (totalDebt / a.creditLimit) * 100) : 0;
-    extra = `
-      <div class="flex items-center gap-2 mt-2">
-        <span class="badge ${status.cls} badge-dot">${status.label}</span>
-        ${a.last4?`<span class="text-xs text-dim font-mono">••${a.last4}</span>`:''}
-      </div>
-      <div class="mt-2">
-        <div class="flex justify-between text-xs text-muted mb-1">
-          <span>Deuda / Límite</span>
-          <span class="font-mono">${fmtMoney(totalDebt)} / ${fmtMoney(a.creditLimit)}</span>
-        </div>
-        <div class="progress"><div class="progress-bar ${usagePct>80?'danger':usagePct>60?'warning':''}" style="width:${usagePct}%"></div></div>
-      </div>
-      <div class="flex justify-between text-xs text-dim mt-2">
-        <span>Corte: ${fmtDate(period.start.toISOString(),{pattern:'short'})}</span>
-        <span>Pago: ${fmtDate(period.nextPay.toISOString(),{pattern:'short'})}</span>
-      </div>
-    `;
-  } else if (isSavings) {
-    extra = `
-      <div class="mt-2">
-        <span class="badge badge-info badge-dot">No cuenta en el balance</span>
-      </div>
-      <div class="text-xs text-dim mt-2">Usa esta cuenta para transferencias de ahorro que no quieres ver en tu balance general.</div>
-    `;
-  }
+function cardMini(c, records, onChange) {
+  const metrics = getCardMetrics(c, records);
+  const { period, totalDebt, status, due } = metrics;
+  const usagePct = c.creditLimit > 0 ? Math.min(100, (totalDebt / c.creditLimit) * 100) : 0;
+
   const div = document.createElement('div');
-  div.className = 'acct-tile';
+  div.className = 'card card-hover';
+  div.style.cursor = 'pointer';
   div.innerHTML = `
-    <div class="acct-tile-head">
-      <div class="acct-emoji" style="background:${a.color}22">${a.emoji||t.emoji}</div>
-      <div style="flex:1;min-width:0">
-        <div class="acct-name truncate">${escapeHTML(a.name)}</div>
-        <div class="acct-type">${t.label}${a.archived?' · Archivada':''}</div>
+    <div class="card-visual" style="background:${cardGradient(c.color)};margin:-18px -18px 14px;border-radius:16px 16px 0 0">
+      <div class="flex justify-between items-start">
+        <div class="card-chip"></div>
+        <span style="font-size:10px;opacity:.85;font-weight:800;letter-spacing:.1em">${escapeHTML((c.name||'').toUpperCase())}</span>
+      </div>
+      <div class="card-number">${maskCardNumber(c.last4)}</div>
+      <div class="card-meta">
+        <div>
+          <div style="opacity:.7;font-size:9px">LÍMITE</div>
+          <div style="font-weight:600">${fmtMoney(c.creditLimit, undefined, {compact:true})}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="opacity:.7;font-size:9px">VENCE</div>
+          <div style="font-weight:600">${escapeHTML(c.expiry||'—')}</div>
+        </div>
       </div>
     </div>
-    <div>
-      <div class="text-xs text-muted">${isCard?'Deuda total':'Saldo'}</div>
-      <div class="acct-balance ${isCard||Number(a.balance)<0?'neg':''}">${fmtMoney(isCard? cardTotalDebt(a,records) : a.balance, a.currency)}</div>
+    <div class="flex items-center justify-between mb-2">
+      <span class="badge ${status.cls} badge-dot">${status.label}</span>
+      <span class="text-xs text-dim">Próx. corte ${relativeTime(period.nextCut.toISOString())} · Pago ${relativeTime(period.nextPay.toISOString())}</span>
     </div>
-    ${extra}
-    <div class="flex gap-2 mt-2">
-      <button class="btn btn-sm flex-1 edit-btn">${icon('edit',14)} Editar</button>
-      <button class="btn btn-sm archive-btn">${a.archived?icon('refresh',14):icon('eye-off',14)} ${a.archived?'Restaurar':'Archivar'}</button>
-      <button class="btn btn-sm btn-danger del-btn" title="Eliminar">${icon('trash',14)}</button>
+    <div class="flex justify-between text-xs text-muted mb-1">
+      <span>Deuda total / Límite</span>
+      <span class="font-mono">${usagePct.toFixed(0)}%</span>
     </div>
+    <div class="progress mb-3"><div class="progress-bar ${usagePct>80?'danger':usagePct>60?'warning':''}" style="width:${usagePct}%"></div></div>
+    <div class="flex justify-between text-xs mb-2">
+      <div><span class="text-dim">Deuda total</span><div class="font-semibold font-mono amt-neg">${fmtMoney(totalDebt)}</div></div>
+      <div class="text-right"><span class="text-dim">Disponible</span><div class="font-semibold font-mono">${fmtMoney(Math.max(0, c.creditLimit - totalDebt))}</div></div>
+    </div>
+    <div class="flex justify-between text-xs">
+      <div><span class="text-dim">Corte (inicio)</span><div class="font-semibold">${fmtDate(period.start.toISOString(),{pattern:'short'})}</div></div>
+      <div class="text-right"><span class="text-dim">Pago (fin)</span><div class="font-semibold">${fmtDate(period.nextPay.toISOString(),{pattern:'short'})}</div></div>
+    </div>
+    <div class="divider"></div>
+    <div class="flex justify-between items-center mb-2">
+      <span class="text-sm text-muted">A pagar (periodo)</span>
+      <span class="font-mono font-bold ${due>0?'amt-neg':''} text-lg">${fmtMoney(due)}</span>
+    </div>
+    <button class="btn btn-primary btn-block pay-btn" ${due<=0?'disabled':''}>
+      ${icon(due<=0?'check':'banknote',16)} ${due<=0?'Al día':'Pagar tarjeta'}
+    </button>
   `;
-  div.querySelector('.edit-btn').onclick = () => accountForm(a, onChange);
-  div.querySelector('.archive-btn').onclick = async () => {
-    db.save('accounts', { ...a, archived: !a.archived });
-    toast(a.archived ? 'Restaurada' : 'Archivada', '', 'success');
-    onChange();
+  div.onclick = (e) => {
+    if (e.target.closest('.pay-btn')) return;
+    openCardDetail(c, records, onChange);
   };
-  div.querySelector('.del-btn').onclick = async () => {
-    const recCount = db.getTable('records').filter(r => r.accountId === a.id || r.toAccountId === a.id).length;
-    const msg = recCount > 0
-      ? `Esta cuenta tiene ${recCount} registro(s) asociado(s). Al eliminarla, esos registros perderán su referencia de cuenta (se conservan pero sin cuenta). ¿Eliminar de todos modos?`
-      : '¿Eliminar definitivamente esta cuenta?';
-    const ok = await confirm({ title: 'Eliminar cuenta', message: msg, danger: true, confirmText: 'Eliminar' });
-    if (ok) {
-      // Desvincular registros de la cuenta eliminada
-      const recs = db.getTable('records');
-      for (const r of recs) {
-        if (r.accountId === a.id) { r.accountId = ''; db.save('records', r); }
-        if (r.toAccountId === a.id) { r.toAccountId = ''; db.save('records', r); }
-      }
-      db.remove('accounts', a.id);
-      toast('Cuenta eliminada', '', 'success');
-      onChange();
-    }
+  div.querySelector('.pay-btn').onclick = (e) => {
+    e.stopPropagation();
+    payCard(c, { due, totalDebt }, onChange);
   };
   return div;
 }
 
-// ---------- Formulario de cuenta ----------
-export function accountForm(existing, onDone) {
-  const accounts = db.getTable('accounts');
-  const a = existing || {
-    id: '', name: '', type: 'cash', emoji: '💵', color: '#10b981',
-    balance: 0, currency: 'USD', last4: '', cutDay: 1, payDay: 1,
-    creditLimit: 0, expiry: '', startingDebt: 0, archived: false, createdAt: '',
-  };
+function openCardDetail(c, records, onChange) {
+  const metrics = getCardMetrics(c, records);
+  const { period, totalDebt, status, due } = metrics;
+  const usagePct = c.creditLimit > 0 ? Math.min(100, (totalDebt / c.creditLimit) * 100) : 0;
+  
+  const months = lastNMonths(6);
+  const spending = months.map(mo => records.filter(r => r.accountId===c.id && r.type==='expense' && inMonth(r.date, mo.y, mo.m)).reduce((s,r)=>s+Number(r.amount||0),0));
 
   const body = document.createElement('div');
-  body.style.cssText = 'display:flex;flex-direction:column;gap:14px';
+  body.style.cssText = 'display:flex;flex-direction:column;gap:16px';
+  body.innerHTML = `
+    <div class="card-visual" style="background:${cardGradient(c.color)};margin:0">
+      <div class="flex justify-between items-start">
+        <div class="card-chip"></div>
+        <span style="font-size:10px;opacity:.85;font-weight:800;letter-spacing:.1em">${escapeHTML((c.name||'').toUpperCase())}</span>
+      </div>
+      <div class="card-number">${maskCardNumber(c.last4)}</div>
+      <div class="card-meta">
+        <div><div style="opacity:.7;font-size:9px">LÍMITE</div><div style="font-weight:600">${fmtMoney(c.creditLimit)}</div></div>
+        <div style="text-align:right"><div style="opacity:.7;font-size:9px">VENCE</div><div style="font-weight:600">${escapeHTML(c.expiry||'—')}</div></div>
+      </div>
+    </div>
 
-  // Tipo
-  const typeSeg = segmented(
-    Object.entries(ACCOUNT_TYPES).map(([k,v])=>({value:k,label:`${v.emoji} ${v.label}`})),
-    a.type, v => { a.type = v; updateCardFields(); }
-  );
-  body.appendChild(field({ label: 'Tipo de cuenta', input: typeSeg }));
+    <div class="grid grid-cols-2 gap-3">
+      <div class="card" style="padding:14px">
+        <div class="text-xs text-muted">Estado</div>
+        <div class="mt-2"><span class="badge ${status.cls} badge-dot">${status.label}</span></div>
+      </div>
+      <div class="card" style="padding:14px">
+        <div class="text-xs text-muted">Deuda total</div>
+        <div class="font-mono font-bold text-xl ${totalDebt>0?'amt-neg':''}">${fmtMoney(totalDebt)}</div>
+      </div>
+      <div class="card" style="padding:14px">
+        <div class="text-xs text-muted">Corte (inicio periodo)</div>
+        <div class="font-semibold mt-1">${fmtDate(period.start.toISOString())}</div>
+        <div class="text-xs text-dim">${relativeTime(period.start.toISOString())}</div>
+      </div>
+      <div class="card" style="padding:14px">
+        <div class="text-xs text-muted">Pago (fin periodo)</div>
+        <div class="font-semibold mt-1">${fmtDate(period.nextPay.toISOString())}</div>
+        <div class="text-xs text-dim">${relativeTime(period.nextPay.toISOString())}</div>
+      </div>
+    </div>
 
-  // Nombre
-  const nameInput = input({ value: a.name, placeholder: 'Ej: Cuenta de ahorros' });
-  body.appendChild(field({ label: 'Nombre', required: true, input: nameInput }));
+    <div class="card">
+      <div class="flex justify-between text-sm mb-2">
+        <span class="text-muted">Deuda total / Límite de crédito</span>
+        <span class="font-mono font-bold">${usagePct.toFixed(0)}%</span>
+      </div>
+      <div class="progress"><div class="progress-bar ${usagePct>80?'danger':usagePct>60?'warning':''}" style="width:${usagePct}%"></div></div>
+      <div class="flex justify-between text-xs text-dim mt-2">
+        <span>Deuda: ${fmtMoney(totalDebt)}</span>
+        <span>Disponible: ${fmtMoney(Math.max(0, c.creditLimit - totalDebt))}</span>
+      </div>
+    </div>
 
-  // Emoji + color
-  const emojiPick = emojiPicker(a.emoji, EMOJI_OPTS);
-  const colorPick = colorPicker(a.color, COLOR_OPTS);
-  const visual = document.createElement('div');
-  visual.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:14px';
-  visual.appendChild(field({ label: 'Emoji', input: emojiPick }));
-  visual.appendChild(field({ label: 'Color', input: colorPick }));
-  body.appendChild(visual);
+    <div class="card">
+      <div class="flex justify-between items-center">
+        <div>
+          <div class="text-xs text-muted">A pagar (deuda del periodo)</div>
+          <div class="text-xs text-dim">Deuda al corte menos abonos</div>
+        </div>
+        <div class="font-mono font-bold text-lg ${due>0?'amt-neg':'text-success'}">${fmtMoney(due)}</div>
+      </div>
+    </div>
 
-  // Saldo inicial / Deuda actual
-  const balanceInput = input({ type:'number', value: a.balance, step:'0.01', placeholder:'0.00' });
-  const balanceField = field({ label: 'Saldo inicial', hint: ' ', input: balanceInput });
-  body.appendChild(balanceField);
-  // Se actualiza el label/hint según el tipo al cambiar
-  const updateBalanceLabel = () => {
-    const isCard = a.type === 'card';
-    const lbl = balanceField.querySelector('.field-label');
-    const hnt = balanceField.querySelector('.field-hint');
-    if (lbl) lbl.textContent = isCard ? 'Saldo inicial (deuda actual)' : 'Saldo inicial';
-    if (hnt) hnt.textContent = isCard
-      ? 'Deuda actual real de la tarjeta. Va en el balance y la barra de progreso. Los registros la ajustan.'
-      : ' ';
-  };
+    <div class="card">
+      <div class="card-header"><div class="card-title">Gasto mensual (6 meses)</div></div>
+      <div style="height:200px"><canvas id="cardLineChart"></canvas></div>
+    </div>
 
-  // last4
-  const last4Input = input({ value: a.last4, placeholder: 'Últimos 4 dígitos', maxLength: 4 });
-  body.appendChild(field({ label: 'Últimos 4 dígitos', hint: 'Para tarjetas y cuentas bancarias', input: last4Input }));
+    <div class="card">
+      <div class="card-header"><div class="card-title">Movimientos del periodo</div></div>
+      <div class="flex flex-col gap-2 scroll-list" id="periodMovs"></div>
+    </div>
+  `;
 
-  // Campos dinámicos para tarjeta
-  const cardFields = document.createElement('div');
-  cardFields.style.cssText = 'display:flex;flex-direction:column;gap:14px';
-  body.appendChild(cardFields);
-
-  function updateCardFields() {
-    cardFields.innerHTML = '';
-    last4Input.closest('.field').style.display = (a.type==='card'||a.type==='bank') ? '' : 'none';
-    updateBalanceLabel();
-    if (a.type === 'card') {
-      const cutInput = input({ type:'number', value: a.cutDay||1, min:1, max:31 });
-      const payInput = input({ type:'number', value: a.payDay||1, min:1, max:31 });
-      const limitInput = input({ type:'number', value: a.creditLimit||0, min:0, step:'0.01' });
-      const expiryInput = input({ type:'month', value: a.expiry||'' });
-      const startingDebtInput = input({ type:'number', value: a.startingDebt||0, min:0, step:'0.01', placeholder:'0.00' });
-      cutInput.oninput = () => a.cutDay = clampDay(Number(cutInput.value)||1);
-      payInput.oninput = () => a.payDay = clampDay(Number(payInput.value)||1);
-      limitInput.oninput = () => a.creditLimit = Number(limitInput.value)||0;
-      expiryInput.oninput = () => a.expiry = expiryInput.value;
-      startingDebtInput.oninput = () => a.startingDebt = Number(startingDebtInput.value)||0;
-      const row = document.createElement('div');
-      row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:14px';
-      row.appendChild(field({ label: 'Día de corte', hint:'Día del mes (1-31)', input: cutInput }));
-      row.appendChild(field({ label: 'Día de pago', hint:'Día del mes (1-31)', input: payInput }));
-      cardFields.appendChild(row);
-      cardFields.appendChild(field({ label: 'Límite de crédito', input: limitInput }));
-      cardFields.appendChild(field({ label: 'Pago inicial que se debe', hint:'Monto a pagar en el periodo actual. Solo es una referencia para prellenar el botón "Pagar". NO afecta la deuda total (esa es el Saldo inicial).', input: startingDebtInput }));
-      cardFields.appendChild(field({ label: 'Vencimiento de la tarjeta', input: expiryInput }));
-
-      // Preview de tarjeta visual
-      const preview = document.createElement('div');
-      preview.style.cssText = 'margin-top:4px';
-      const updatePreview = () => {
-        preview.innerHTML = `
-          <div class="card-visual" style="background:linear-gradient(135deg, ${colorPick.getValue()}, ${colorPick.getValue()}88 60%, #0a0f0d)">
-            <div class="flex justify-between items-start">
-              <div class="card-chip"></div>
-              <span style="font-size:11px;opacity:.8;font-weight:700">${escapeHTML(ACCOUNT_TYPES.card.label.toUpperCase())}</span>
-            </div>
-            <div class="card-number">${'•••• •••• •••• ' + (last4Input.value||'••••').padStart(4,'•')}</div>
-            <div class="card-meta">
-              <div>
-                <div style="opacity:.7;font-size:9px">TITULAR</div>
-                <div style="font-weight:600">${escapeHTML(nameInput.value||'Nombre')}</div>
-              </div>
-              <div style="text-align:right">
-                <div style="opacity:.7;font-size:9px">VENCE</div>
-                <div style="font-weight:600">${escapeHTML(expiryInput.value||'MM/AA')}</div>
-              </div>
-            </div>
+  const movs = records.filter(r => (r.accountId === c.id || r.toAccountId === c.id) && new Date(r.date) >= period.start && new Date(r.date) < period.nextCut)
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const movsEl = body.querySelector('#periodMovs');
+  
+  if (movs.length === 0) {
+    movsEl.appendChild(emptyState({ icon:'receipt', title:'Sin movimientos', message:'No hay registros en este periodo.' }));
+  } else {
+    for (const r of movs) {
+      const isPayment = r.type === 'transfer' && r.toAccountId === c.id;
+      const cat = db.getTable('categories').find(x=>x.id===r.categoryId);
+      movsEl.insertAdjacentHTML('beforeend', `
+        <div class="list-item" style="padding:8px 10px">
+          <div class="list-item-icon" style="background:var(--${isPayment?'success':'primary'}-soft);color:var(--${isPayment?'success':'primary'});width:32px;height:32px">${icon(isPayment?'arrow-down-left':'arrow-up-right',14)}</div>
+          <div class="list-item-body">
+            <div class="list-item-title" style="font-size:13px">${escapeHTML(r.note||cat?.name||(isPayment?'Abono':'Gasto'))}</div>
+            <div class="list-item-sub">${fmtDate(r.date,{pattern:'short'})}</div>
           </div>
-        `;
-      };
-      nameInput.oninput = updatePreview;
-      last4Input.oninput = updatePreview;
-      expiryInput.oninput = updatePreview;
-      // observer simple: actualiza la vista previa cuando cambian color/emoji
-      const obs = new MutationObserver(updatePreview);
-      obs.observe(colorPick, { attributes:true, attributeFilter:['data-value'] });
-      const obs2 = new MutationObserver(updatePreview);
-      obs2.observe(emojiPick, { attributes:true, attributeFilter:['data-value'] });
-      updatePreview();
-      cardFields.appendChild(field({ label: 'Vista previa', input: preview }));
+          <div class="font-mono font-bold ${isPayment?'text-success':'amt-neg'}" style="font-size:13px">${isPayment?'+':'-'}${fmtMoney(r.amount)}</div>
+        </div>
+      `);
     }
   }
-  updateCardFields();
 
-  // Footer
   const footer = document.createElement('div');
   footer.style.cssText = 'display:flex;justify-content:space-between;gap:10px';
-  if (existing) {
-    const del = document.createElement('button');
-    del.className = 'btn btn-danger';
-    del.innerHTML = `${icon('trash',14)} Eliminar`;
-    del.onclick = async () => {
-      const ok = await confirm({ title:'Eliminar cuenta', message:'¿Eliminar esta cuenta permanentemente?', danger:true, confirmText:'Eliminar' });
-      if (ok) { db.remove('accounts', existing.id); m.close(); toast('Eliminada','','success'); onDone?.(); }
-    };
-    footer.appendChild(del);
-  }
-  const right = document.createElement('div');
-  right.style.cssText = 'display:flex;gap:10px';
-  const cancel = document.createElement('button');
-  cancel.className = 'btn'; cancel.textContent = 'Cancelar';
-  const save = document.createElement('button');
-  save.className = 'btn btn-primary'; save.innerHTML = `${icon('check',16)} Guardar`;
-  cancel.onclick = () => m.close();
-  save.onclick = () => {
-    if (!nameInput.value.trim()) { toast('Nombre requerido', '', 'error'); return; }
-    const rec = {
-      ...a,
-      id: a.id || uid('acc'),
-      name: nameInput.value.trim(),
-      emoji: emojiPick.getValue() || ACCOUNT_TYPES[a.type].emoji,
-      color: colorPick.getValue(),
-      balance: Number(balanceInput.value) || 0,
-      last4: last4Input.value,
-      // startingDebt se guarda como referencia para el "A pagar" del periodo actual
-      startingDebt: Number(a.startingDebt) || 0,
-      createdAt: a.createdAt || nowISO(),
-    };
-    db.save('accounts', rec);
-    m.close();
-    toast(existing ? 'Cuenta actualizada' : 'Cuenta creada', '', 'success');
-    onDone?.();
+  const delBtn = document.createElement('button');
+  delBtn.className = 'btn btn-danger'; delBtn.innerHTML = `${icon('trash',14)} Eliminar`;
+  delBtn.onclick = async () => {
+    const recCount = db.getTable('records').filter(r => r.accountId === c.id || r.toAccountId === c.id || r.linkedCardId === c.id).length;
+    const msg = recCount > 0
+      ? `Esta tarjeta tiene ${recCount} registro(s). Al eliminarla pierden su referencia. ¿Eliminar de todos modos?`
+      : '¿Eliminar definitivamente esta tarjeta?';
+    const ok = await confirm({ title: 'Eliminar tarjeta', message: msg, danger: true, confirmText: 'Eliminar' });
+    if (ok) {
+      db.remove('accounts', c.id);
+      m.close();
+      toast('Tarjeta eliminada', '', 'success');
+      onChange();
+    }
   };
-  right.appendChild(cancel);
-  right.appendChild(save);
-  footer.appendChild(right);
+  const editBtn = document.createElement('button');
+  editBtn.className = 'btn'; editBtn.innerHTML = `${icon('edit',14)} Editar`;
+  editBtn.onclick = () => { m.close(); import('./accounts.js').then(mod => mod.accountForm(c, onChange)); };
+  
+  const payBtn = document.createElement('button');
+  payBtn.className = 'btn btn-primary'; payBtn.innerHTML = `${icon('banknote',16)} Pagar tarjeta`;
+  payBtn.disabled = due <= 0;
+  payBtn.onclick = () => { m.close(); payCard(c, { due, totalDebt }, onChange); };
+  
+  footer.appendChild(delBtn);
+  footer.appendChild(editBtn);
+  footer.appendChild(payBtn);
 
-  const m = modal({ title: existing ? 'Editar cuenta' : 'Nueva cuenta', size: 'lg', body, footer });
+  const m = modal({ title: c.name, size: 'lg', body, footer });
+
+  setTimeout(() => {
+    const canvas = body.querySelector('#cardLineChart');
+    if (!canvas) return;
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: months.map(mo => mo.label),
+        datasets: [{ label: 'Gasto', data: spending, borderColor: c.color, backgroundColor: c.color + '22', fill: true, tension: 0.35, pointRadius: 4 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: isDark ? '#9aa8a1' : '#5c6b64' } },
+          y: { grid: { color: isDark ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.06)' }, ticks: { color: isDark ? '#9aa8a1' : '#5c6b64' } },
+        },
+      },
+    });
+  }, 50);
 }
 
-function clampDay(d) { return Math.min(31, Math.max(1, d)); }
+// ---------- Pagar tarjeta (Corregido a tipo 'transfer') ----------
+export function payCard(card, bal, onDone) {
+  if (bal.due <= 0) { toast('Nada que pagar', 'La tarjeta no tiene deuda pendiente.', 'info'); return; }
+  const accounts = db.getTable('accounts').filter(a => !a.archived && a.id !== card.id && a.type !== 'card');
+  const body = document.createElement('div');
+  body.style.cssText = 'display:flex;flex-direction:column;gap:14px';
+  body.innerHTML = `
+    <div class="card" style="padding:14px;background:var(--primary-soft);border-color:transparent">
+      <div class="text-xs text-muted">Pago a ${escapeHTML(card.name)}</div>
+      <div class="font-mono font-bold text-2xl">${fmtMoney(bal.due)}</div>
+    </div>
+  `;
+  const paySource = select(
+    [{value:'',label:'— Selecciona cuenta de origen —'}, ...accounts.map(a=>({value:a.id,label:`${a.emoji} ${a.name} (${fmtMoney(a.balance,a.currency,{compact:true})})`}))], ''
+  );
+  body.appendChild(field({ label: 'Pagar desde', required: true, input: paySource }));
+  
+  // Utilizando constructor local para evitar desfases de Timezone (UTC) en los inputs:
+  const t = new Date();
+  const todayLocalStr = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  
+  const amtInput = input({ type:'number', value: bal.due, step:'0.01', min:'0.01' });
+  body.appendChild(field({ label: 'Monto a pagar', input: amtInput }));
+  const dateInput = input({ type:'date', value: todayLocalStr });
+  body.appendChild(field({ label: 'Fecha de pago', input: dateInput }));
+
+  const footer = document.createElement('div');
+  footer.style.cssText = 'display:flex;justify-content:flex-end;gap:10px';
+  const cancel = document.createElement('button'); cancel.className='btn'; cancel.textContent='Cancelar';
+  const pay = document.createElement('button'); pay.className='btn btn-primary'; pay.innerHTML=`${icon('banknote',16)} Confirmar pago`;
+  cancel.onclick = () => m.close();
+  pay.onclick = () => {
+    const sourceId = paySource.value;
+    const amount = Number(amtInput.value);
+    if (!sourceId) { toast('Selecciona cuenta', 'Elige desde dónde pagar.', 'error'); return; }
+    if (!amount || amount <= 0) { toast('Monto inválido', '', 'error'); return; }
+    
+    const rec = {
+      id: uid('rec'),
+      type: 'transfer', // AHORA ES TRANSFERENCIA DIRECTA A LA TARJETA
+      amount,
+      currency: 'USD',
+      date: dateInput.value,
+      accountId: sourceId,
+      toAccountId: card.id, // VINCULACIÓN CORRECTA DE INGRESO
+      categoryId: 'cat-cardpay',
+      tags: ['tag-rec'],
+      note: `Abono a ${card.name}`,
+      linkedCardId: card.id, // Mantenido por retrocompatibilidad visual
+      scheduledId: '',
+      createdAt: nowISO(),
+    };
+    db.save('records', rec);
+    db.applyRecordToAccounts(rec);
+    db.persistNow();
+    m.close();
+    toast('Pago registrado', `Se abonó ${fmtMoney(amount)} a ${card.name}.`, 'success');
+    onDone?.();
+  };
+  footer.appendChild(cancel);
+  footer.appendChild(pay);
+
+  const m = modal({ title: 'Pagar tarjeta', size: 'sm', body, footer });
+}
+
+// ---------- Motor Interno y Robusto de Métricas de Tarjetas ----------
+function getCardMetrics(c, records) {
+  const today = new Date();
+  const cutDay = Number(c.cutDay) || 1;
+  const payDay = Number(c.payDay) || 1;
+
+  // Helper para resolver fechas problemáticas (ej. prevenir que 31 de Febrero salte al 3 de Marzo)
+  const getSafeDate = (y, m, d) => {
+    let dt = new Date(y, m, d);
+    if (dt.getDate() !== d) dt = new Date(y, m + 1, 0); // Fija al último día del mes
+    return dt;
+  };
+
+  const toLocalStr = (d) => {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  let lastCut = getSafeDate(today.getFullYear(), today.getMonth(), cutDay);
+  if (today.getDate() < cutDay) {
+    lastCut = getSafeDate(today.getFullYear(), today.getMonth() - 1, cutDay);
+  }
+
+  let nextPay = getSafeDate(lastCut.getFullYear(), lastCut.getMonth(), payDay);
+  if (payDay <= cutDay) {
+    nextPay = getSafeDate(lastCut.getFullYear(), lastCut.getMonth() + 1, payDay);
+  }
+  let nextCut = getSafeDate(lastCut.getFullYear(), lastCut.getMonth() + 1, cutDay);
+
+  const lastCutStr = toLocalStr(lastCut);
+  const nextPayStr = toLocalStr(nextPay);
+  const todayStr = toLocalStr(today);
+
+  // La deuda total siempre es el saldo actual de la cuenta (en valor absoluto)
+  let totalDebt = Math.abs(Number(c.balance) || 0);
+
+  // Retrospectiva: Descubrir cuánto se debía exactamente el día del corte
+  let balanceAtCut = totalDebt;
+  let paymentsSinceCut = 0;
+
+  const recent = records.filter(r => 
+    (r.accountId === c.id || r.toAccountId === c.id || r.linkedCardId === c.id) &&
+    r.date > lastCutStr && r.date <= todayStr
+  );
+
+  // Ahora rastreamos gastos, reembolsos, y salidas de capital (cash advance)
+  for (const r of recent) {
+    const amt = Number(r.amount) || 0;
+    
+    if (r.type === 'expense' && r.accountId === c.id) {
+      balanceAtCut -= amt; // Consumo nuevo (reducimos para volver en el tiempo)
+    } else if (r.type === 'income' && r.accountId === c.id) {
+      balanceAtCut += amt; // Reembolsos/Cashback (sumamos porque habían reducido la deuda)
+    } else if (r.type === 'transfer' && r.toAccountId === c.id) {
+      balanceAtCut += amt; // Sumar de vuelta los abonos realizados
+      paymentsSinceCut += amt;
+    } else if (r.type === 'transfer' && r.accountId === c.id) {
+      balanceAtCut -= amt; // Transferencia saliente / Avance de efectivo
+    } else if (r.type === 'expense' && r.linkedCardId === c.id) {
+      balanceAtCut += amt; // Soporte para registros viejos
+      paymentsSinceCut += amt;
+    }
+  }
+
+  let due = Math.max(0, balanceAtCut - paymentsSinceCut);
+
+  // Resolución definitiva de Etiquetas
+  let status;
+  if (totalDebt <= 0 || due <= 0.01) {
+    status = { label: 'Pagada', cls: 'badge-success' };
+    due = 0;
+  } else if (todayStr > nextPayStr) {
+    status = { label: 'Vencida', cls: 'badge-danger' };
+  } else {
+    status = { label: 'Pendiente', cls: 'badge-warning' };
+  }
+
+  return { totalDebt, due, status, period: { start: lastCut, nextPay, nextCut } };
+}

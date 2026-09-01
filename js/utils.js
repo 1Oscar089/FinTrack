@@ -57,11 +57,14 @@ export function fmtPct(value, decimals = 1) {
 
 // ---------- Fechas ----------
 export function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
 }
 
 export function nowISO() {
-  return new Date().toISOString();
+  const t = new Date();
+  t.setMinutes(t.getMinutes() - t.getTimezoneOffset());
+  return t.toISOString().slice(0, 19); 
 }
 
 export function currentMonth() {

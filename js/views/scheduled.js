@@ -5,7 +5,13 @@ import * as db from '../db.js';
 import { RECORD_TYPES, FREQUENCIES } from '../config.js';
 import { icon } from '../icons.js';
 import { toast, modal, confirm, field, input, select, textarea, segmented, emptyState } from '../ui.js';
-import { fmtMoney, fmtDate, relativeTime, todayISO, uid, nowISO, escapeHTML } from '../utils.js';
+import { fmtMoney, fmtDate, relativeTime, uid, nowISO, escapeHTML } from '../utils.js';
+
+// Helper para obtener el "Hoy" local y evitar desfases UTC
+function getLocalTodayStr() {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+}
 
 export function renderScheduled(root) {
   draw();
@@ -58,7 +64,9 @@ function row(s, onChange) {
   const t = RECORD_TYPES[s.type] || RECORD_TYPES.expense;
   const freq = FREQUENCIES[s.frequency] || FREQUENCIES.once;
   const sign = s.type === 'income' ? '+' : s.type === 'expense' ? '-' : '';
-  const overdue = s.nextDate && s.nextDate < todayISO();
+  const todayStr = getLocalTodayStr();
+  const overdue = s.nextDate && s.nextDate < todayStr;
+  
   const div = document.createElement('div');
   div.className = 'list-item';
   div.innerHTML = `
@@ -69,12 +77,12 @@ function row(s, onChange) {
     </div>
     <div class="flex items-center gap-2">
       <div class="font-mono font-bold ${s.type==='income'?'amt-pos':s.type==='expense'?'amt-neg':''}">${sign}${fmtMoney(s.amount)}</div>
-      <button class="icon-btn run-btn" title="Ejecutar ahora">${icon('play',15)}</button>
+      <button class="icon-btn run-btn" title="Ejecutar ahora" ${!s.active?'disabled style="opacity:0.5"':''}>${icon('play',15)}</button>
       <button class="icon-btn hist-btn" title="Historial">${icon('history',15)}</button>
       <button class="icon-btn edit-btn" title="Editar">${icon('edit',15)}</button>
     </div>
   `;
-  div.querySelector('.run-btn').onclick = () => executeNow(s, onChange);
+  if (s.active) div.querySelector('.run-btn').onclick = () => executeNow(s, onChange);
   div.querySelector('.hist-btn').onclick = () => showHistory(s);
   div.querySelector('.edit-btn').onclick = () => scheduledForm(s, onChange);
   return div;
@@ -82,45 +90,65 @@ function row(s, onChange) {
 
 // ---------- Ejecutar manualmente ----------
 function executeNow(s, onChange) {
+  const todayStr = getLocalTodayStr();
   const rec = {
     id: uid('rec'),
     type: s.type,
     amount: Number(s.amount) || 0,
     currency: s.currency || 'USD',
-    date: todayISO(),
+    date: s.nextDate && s.nextDate <= todayStr ? s.nextDate : todayStr, // Ejecuta en la fecha de corte o adelantado a hoy
     accountId: s.accountId || '',
     toAccountId: s.toAccountId || '',
     categoryId: s.categoryId || '',
     tags: s.tags || [],
     note: `${s.name} (manual)`,
-    linkedCardId: s.linkedCardId || '',
+    linkedCardId: s.type === 'transfer' ? s.toAccountId : (s.linkedCardId || ''),
     scheduledId: s.id,
     createdAt: nowISO(),
   };
+  
   db.save('records', rec);
   db.applyRecordToAccounts(rec);
-  db.save('scheduledHistory', { id: uid('hist'), scheduledId: s.id, recordId: rec.id, date: todayISO(), amount: rec.amount, status: 'manual' });
-  // Avanzar fecha
+  db.save('scheduledHistory', { id: uid('hist'), scheduledId: s.id, recordId: rec.id, date: rec.date, amount: rec.amount, status: 'manual' });
+  
+  // Avanzar fecha con seguridad matemática
   if (s.frequency !== 'once') {
-    s.nextDate = advanceDate(s.nextDate, s.frequency);
+    s.nextDate = advanceDate(s.nextDate || todayStr, s.frequency);
     if (s.endDate && s.nextDate > s.endDate) s.active = false;
   } else {
     s.active = false;
   }
+  
   db.save('scheduled', s);
-  toast('Ejecutado', `${s.name} registrado.`, 'success');
+  toast('Ejecutado', `${s.name} registrado con éxito.`, 'success');
   onChange();
 }
 
-function advanceDate(dateISO, freq) {
-  if (!dateISO) return todayISO();
-  const d = new Date(dateISO + 'T00:00:00');
-  if (freq === 'weekly') d.setDate(d.getDate() + 7);
-  else if (freq === 'biweekly') d.setDate(d.getDate() + 15);
-  else if (freq === 'monthly') d.setMonth(d.getMonth() + 1);
-  else if (freq === 'quarterly') d.setMonth(d.getMonth() + 3);
-  else if (freq === 'yearly') d.setFullYear(d.getFullYear() + 1);
-  return d.toISOString().slice(0, 10);
+function advanceDate(dateStr, freq) {
+  if (!dateStr) return '';
+  const [y, m, d] = dateStr.split('-').map(Number);
+  let dt = new Date(y, m - 1, d); // Mes es base 0 en JS
+
+  if (freq === 'weekly') dt.setDate(dt.getDate() + 7);
+  else if (freq === 'biweekly') dt.setDate(dt.getDate() + 15);
+  else if (freq === 'monthly') {
+    dt.setMonth(dt.getMonth() + 1);
+    // Prevención de desbordamiento (ej: 31 de Enero a 3 de Marzo)
+    if (dt.getDate() < d) dt.setDate(0); 
+  }
+  else if (freq === 'quarterly') {
+    dt.setMonth(dt.getMonth() + 3);
+    if (dt.getDate() < d) dt.setDate(0);
+  }
+  else if (freq === 'yearly') {
+    dt.setFullYear(dt.getFullYear() + 1);
+    if (dt.getDate() < d) dt.setDate(0);
+  }
+
+  const ry = dt.getFullYear();
+  const rm = String(dt.getMonth() + 1).padStart(2, '0');
+  const rd = String(dt.getDate()).padStart(2, '0');
+  return `${ry}-${rm}-${rd}`;
 }
 
 // ---------- Historial ----------
@@ -150,11 +178,11 @@ function showHistory(s) {
 export function scheduledForm(existing, onDone) {
   const accounts = db.getTable('accounts').filter(a => !a.archived);
   const categories = db.getTable('categories');
-  const tags = db.getTable('tags');
+  const todayStr = getLocalTodayStr();
 
   const s = existing || {
     id: '', name: '', type: 'expense', amount: '', currency: 'USD',
-    frequency: 'monthly', nextDate: todayISO(), endDate: '',
+    frequency: 'monthly', nextDate: todayStr, endDate: '',
     accountId: accounts[0]?.id || '', toAccountId: '', categoryId: '',
     tags: [], note: '', auto: false, active: true, createdAt: '',
   };
@@ -171,13 +199,13 @@ export function scheduledForm(existing, onDone) {
   );
   body.appendChild(field({ label: 'Tipo', input: typeSeg }));
 
-  const amountInput = input({ type:'number', value: s.amount, step:'0.01', min:'0', placeholder:'0.00' });
+  const amountInput = input({ type:'number', value: s.amount, step:'0.01', min:'0.01', placeholder:'0.00' });
   body.appendChild(field({ label: 'Monto', required: true, input: amountInput }));
 
   const freqSel = select(Object.entries(FREQUENCIES).map(([k,v])=>({value:k,label:v.label})), s.frequency);
   body.appendChild(field({ label: 'Frecuencia', input: freqSel }));
 
-  const nextInput = input({ type:'date', value: s.nextDate });
+  const nextInput = input({ type:'date', value: s.nextDate || todayStr });
   body.appendChild(field({ label: 'Próxima fecha', input: nextInput }));
 
   const endInput = input({ type:'date', value: s.endDate });
@@ -204,15 +232,16 @@ export function scheduledForm(existing, onDone) {
 
   function updateFields() {
     dyn.innerHTML = '';
-    const accountOpts = [{value:'',label:'— Selecciona —'}, ...accounts.map(a=>({value:a.id,label:`${a.emoji} ${a.name}`}))];
+    const accountOpts = [{value:'',label:'— Selecciona origen —'}, ...accounts.map(a=>({value:a.id,label:`${a.emoji} ${a.name}`}))];
+    
     if (s.type === 'transfer') {
       const from = select(accountOpts, s.accountId);
-      const toOpts = [{value:'',label:'— Fuera del tracker —'}, ...accounts.map(a=>({value:a.id,label:`${a.emoji} ${a.name}`}))];
+      const toOpts = [{value:'',label:'— Selecciona destino —'}, ...accounts.map(a=>({value:a.id,label:`${a.emoji} ${a.name}`}))];
       const to = select(toOpts, s.toAccountId);
       from.onchange = () => s.accountId = from.value;
       to.onchange = () => s.toAccountId = to.value;
       dyn.appendChild(field({ label:'Cuenta origen', required:true, input: from }));
-      dyn.appendChild(field({ label:'Cuenta destino', input: to }));
+      dyn.appendChild(field({ label:'Cuenta destino', required:true, input: to }));
     } else {
       const acc = select(accountOpts, s.accountId);
       const catOpts = [{value:'',label:'— Sin categoría —'}, ...categories.filter(c=>c.type===s.type).map(c=>({value:c.id,label:`${c.emoji} ${c.name}`}))];
@@ -228,6 +257,7 @@ export function scheduledForm(existing, onDone) {
   // Footer
   const footer = document.createElement('div');
   footer.style.cssText = 'display:flex;justify-content:space-between;gap:10px';
+  
   if (existing) {
     const del = document.createElement('button');
     del.className = 'btn btn-danger'; del.innerHTML = `${icon('trash',14)} Eliminar`;
@@ -237,16 +267,25 @@ export function scheduledForm(existing, onDone) {
     };
     footer.appendChild(del);
   }
+  
   const right = document.createElement('div');
   right.style.cssText = 'display:flex;gap:10px';
   const cancel = document.createElement('button'); cancel.className='btn'; cancel.textContent='Cancelar';
   const save = document.createElement('button'); save.className='btn btn-primary'; save.innerHTML=`${icon('check',16)} Guardar`;
+  
   cancel.onclick = () => m.close();
+  
   save.onclick = () => {
     if (!nameInput.value.trim()) { toast('Nombre requerido', '', 'error'); return; }
     const amount = Number(amountInput.value);
     if (!amount || amount <= 0) { toast('Monto inválido', '', 'error'); return; }
     if (!nextInput.value) { toast('Fecha requerida', '', 'error'); return; }
+    if (!s.accountId) { toast('Selecciona la cuenta principal', '', 'error'); return; }
+    if (s.type === 'transfer' && (!s.toAccountId || s.accountId === s.toAccountId)) { 
+      toast('Error en cuentas', 'Selecciona dos cuentas diferentes para la transferencia.', 'error'); 
+      return; 
+    }
+
     const rec = {
       ...s,
       id: s.id || uid('sch'),
@@ -262,12 +301,13 @@ export function scheduledForm(existing, onDone) {
     };
     db.save('scheduled', rec);
     m.close();
-    toast(existing?'Actualizado':'Pago programado creado', '', 'success');
+    toast(existing ? 'Pago actualizado' : 'Pago programado creado', '', 'success');
     onDone?.();
   };
+  
   right.appendChild(cancel);
   right.appendChild(save);
   footer.appendChild(right);
 
-  const m = modal({ title: existing?'Editar pago programado':'Nuevo pago programado', size:'lg', body, footer });
+  const m = modal({ title: existing ? 'Editar pago programado' : 'Nuevo pago programado', size:'lg', body, footer });
 }
